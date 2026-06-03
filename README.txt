@@ -30,7 +30,9 @@ front-loading-software/
 pip install -r api/requirements.txt
 
 # 2. Subir o servidor (na pasta front-loading-software)
-uvicorn api.main:app --reload
+#    --reload-dir faz o servidor reiniciar sozinho quando o código Python
+#    mudar — tanto da API quanto do backend (loading-software)
+uvicorn api.main:app --reload --reload-dir api --reload-dir ..\loading-software\app
 
 # 3. Abrir no navegador
 # http://localhost:8000
