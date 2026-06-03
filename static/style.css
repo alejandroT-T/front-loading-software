@@ -1,0 +1,221 @@
+/* ═══ Base ═══════════════════════════════════════════════════════════════ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --fundo: #0f1419;
+  --painel: #1a2129;
+  --card: #222b35;
+  --borda: #2f3b47;
+  --texto: #e6edf3;
+  --texto-suave: #8b98a5;
+  --acento: #2f81f7;
+  --acento-hover: #4a93f8;
+  --ok: #3fb950;
+  --erro: #f85149;
+}
+
+html, body { height: 100%; }
+
+body {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: var(--fundo);
+  color: var(--texto);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.topo {
+  padding: 10px 18px;
+  font-size: 17px;
+  font-weight: 600;
+  background: var(--painel);
+  border-bottom: 1px solid var(--borda);
+  flex: 0 0 auto;
+}
+
+/* ═══ Layout 3 painéis ═══════════════════════════════════════════════════ */
+.layout {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 300px 1fr 340px;
+  gap: 10px;
+  padding: 10px;
+  min-height: 0;
+}
+
+.painel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* ═══ Painel esquerdo ════════════════════════════════════════════════════ */
+.card {
+  background: var(--card);
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--texto-suave); margin-bottom: 10px; }
+
+.rotulo { display: block; font-size: 12px; color: var(--texto-suave); margin: 10px 0 4px; }
+
+.file-drop {
+  display: block;
+  border: 1px dashed var(--borda);
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 12px;
+  color: var(--texto-suave);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s;
+  word-break: break-all;
+}
+.file-drop:hover { border-color: var(--acento); }
+.file-drop.tem-arquivo { color: var(--ok); border-color: var(--ok); border-style: solid; }
+
+select, input[type="number"] {
+  width: 100%;
+  padding: 7px 9px;
+  background: var(--painel);
+  color: var(--texto);
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  font-size: 13px;
+}
+select:focus, input:focus { outline: none; border-color: var(--acento); }
+
+.personalizado { margin-top: 10px; }
+.grade-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.grade-2 label { font-size: 11px; color: var(--texto-suave); display: flex; flex-direction: column; gap: 3px; }
+
+.info-conteiner { margin-top: 10px; font-size: 12px; color: var(--texto-suave); line-height: 1.6; }
+
+.btn-executar {
+  width: 100%;
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--acento);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-executar:hover:not(:disabled) { background: var(--acento-hover); }
+.btn-executar:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.status-solver { margin-top: 8px; font-size: 12px; min-height: 16px; color: var(--texto-suave); text-align: center; }
+.status-solver.erro { color: var(--erro); }
+.status-solver.ok { color: var(--ok); }
+
+.card-stats { flex: 1 1 auto; }
+.stats { font-size: 13px; line-height: 1.9; white-space: pre-line; }
+.vazio { color: var(--texto-suave); font-size: 12px; }
+
+details { margin-top: 10px; font-size: 12px; }
+details summary { cursor: pointer; color: var(--texto-suave); }
+details ul { margin: 6px 0 0 18px; color: var(--texto-suave); line-height: 1.7; }
+
+/* ═══ Centro ═════════════════════════════════════════════════════════════ */
+.centro {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.viewport {
+  flex: 1 1 auto;
+  position: relative;
+  background: var(--painel);
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.viewport canvas { display: block; }
+
+.viewport-vazio {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--texto-suave);
+  font-size: 13px;
+}
+
+/* Labels CSS2D das caixas */
+.label-item {
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.controles {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px;
+  background: var(--card);
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+}
+
+.ctl {
+  padding: 8px 16px;
+  font-size: 14px;
+  background: var(--painel);
+  color: var(--texto);
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.ctl:hover:not(:disabled) { border-color: var(--acento); background: var(--card); }
+.ctl:disabled { opacity: 0.4; cursor: not-allowed; }
+.ctl.seta { font-size: 17px; font-weight: 700; padding: 8px 20px; }
+
+.contador { font-size: 14px; font-weight: 600; min-width: 70px; text-align: center; }
+
+/* ═══ Painel direito ═════════════════════════════════════════════════════ */
+.titulo-direito {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--texto-suave);
+  padding: 4px 2px;
+}
+
+.lista-itens { display: flex; flex-direction: column; gap: 8px; }
+
+.item-card {
+  background: var(--card);
+  border: 1px solid var(--borda);
+  border-left: 4px solid var(--cor-item, var(--acento));
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.item-card .item-titulo { font-weight: 700; font-size: 12.5px; margin-bottom: 4px; }
+.item-card { cursor: pointer; transition: background 0.15s; }
+.item-card:hover { background: #2a3542; }
+.item-card.atual { outline: 2px solid var(--acento); }
+.item-card.selecionado { outline: 2px solid #ffd92f; background: #2a3542; }

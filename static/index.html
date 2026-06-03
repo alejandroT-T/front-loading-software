@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simulador de Carregamento de Contêiner</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <header class="topo">🚢 Simulador de Carregamento de Contêiner</header>
+
+  <main class="layout">
+    <!-- ═══ Painel esquerdo ═══ -->
+    <aside class="painel painel-esquerdo">
+
+      <!-- Superior: input dos dados -->
+      <section class="card">
+        <h2>📥 Dados de entrada</h2>
+
+        <label class="rotulo" for="arquivo">Arquivo (.xlsx)</label>
+        <label class="file-drop" id="file-drop">
+          <input type="file" id="arquivo" accept=".xlsx" hidden>
+          <span id="arquivo-nome">Clique para escolher a planilha…</span>
+        </label>
+
+        <label class="rotulo" for="conteiner">Contêiner</label>
+        <select id="conteiner"></select>
+
+        <div id="campos-personalizado" class="personalizado" hidden>
+          <div class="grade-2">
+            <label>Comprimento (cm)<input type="number" id="p-cx" min="1" placeholder="1203"></label>
+            <label>Largura (cm)<input type="number" id="p-cy" min="1" placeholder="235"></label>
+            <label>Altura (cm)<input type="number" id="p-cz" min="1" placeholder="269"></label>
+            <label>Peso máx (kg)<input type="number" id="p-peso" min="1" step="0.1" placeholder="28600"></label>
+            <label>Volume máx (m³)<input type="number" id="p-vol" min="0.1" step="0.1" placeholder="76"></label>
+          </div>
+        </div>
+
+        <div id="info-conteiner" class="info-conteiner"></div>
+      </section>
+
+      <!-- Centro: executar -->
+      <section class="card">
+        <button id="btn-executar" class="btn-executar" disabled>▶ Executar solver</button>
+        <div id="status-solver" class="status-solver"></div>
+      </section>
+
+      <!-- Inferior: informações gerais -->
+      <section class="card card-stats">
+        <h2>📊 Informações gerais</h2>
+        <div id="stats" class="stats vazio">Execute o solver para ver as estatísticas.</div>
+        <details id="nao-carregados-box" hidden>
+          <summary>❌ Itens fora do carregamento (<span id="nao-carregados-qtd">0</span>)</summary>
+          <ul id="nao-carregados"></ul>
+        </details>
+      </section>
+    </aside>
+
+    <!-- ═══ Centro: visualização 3D + controle interativo ═══ -->
+    <section class="centro">
+      <div id="viewport" class="viewport">
+        <div id="viewport-vazio" class="viewport-vazio">A visualização 3D aparecerá aqui após executar o solver.</div>
+      </div>
+      <div class="controles">
+        <button id="btn-limpar" class="ctl" title="Esvazia o contêiner">🧹 Limpar</button>
+        <button id="btn-prev" class="ctl seta" title="Retrocede 1 item">←</button>
+        <span id="contador" class="contador">0 / 0</span>
+        <button id="btn-next" class="ctl seta" title="Avança 1 item">→</button>
+        <button id="btn-todos" class="ctl" title="Posiciona todos os itens">📦 Todos</button>
+      </div>
+    </section>
+
+    <!-- ═══ Painel direito: itens carregados ═══ -->
+    <aside class="painel painel-direito">
+      <h2 class="titulo-direito">📦 Itens no contêiner</h2>
+      <div id="lista-itens" class="lista-itens vazio">Nenhum item posicionado.</div>
+    </aside>
+  </main>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
