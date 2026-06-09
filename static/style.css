@@ -64,6 +64,8 @@ body {
 
 .rotulo { display: block; font-size: 12px; color: var(--texto-suave); margin: 10px 0 4px; }
 
+.dica { display: block; font-size: 11px; color: var(--texto-suave); margin: 4px 0 10px; opacity: 0.8; }
+
 .file-drop {
   display: block;
   border: 1px dashed var(--borda);

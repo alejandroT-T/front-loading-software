@@ -82,6 +82,7 @@ $("btn-executar").addEventListener("click", async () => {
   const fd = new FormData();
   fd.append("arquivo", arquivo);
   fd.append("conteiner", $("conteiner").value);
+  fd.append("tempo", $("tempo-solver").value || 90);
 
   if ($("conteiner").value === "personalizado") {
     const campos = { cx: "p-cx", cy: "p-cy", cz: "p-cz", peso_max_kg: "p-peso", vol_max_m3: "p-vol" };

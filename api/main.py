@@ -118,9 +118,9 @@ def _montar_resultado(lista: list, itens_dados: dict, cont: Conteiner) -> dict:
     }
 
 
-def _executar_solver(job_id: str, cont: Conteiner, itens_dados: dict) -> None:
+def _executar_solver(job_id: str, cont: Conteiner, itens_dados: dict, tempo_fase2: float) -> None:
     try:
-        lista, dados = resolver_carregamento(cont, itens_dados)
+        lista, dados = resolver_carregamento(cont, itens_dados, tempo_fase2=tempo_fase2)
         if not lista:
             JOBS[job_id] = {"status": "erro", "erro": "O solver não encontrou solução viável."}
             return
@@ -138,7 +138,11 @@ async def iniciar_solver(
     cz: int | None = Form(None),
     peso_max_kg: float | None = Form(None),
     vol_max_m3: float | None = Form(None),
+    tempo: float | None = Form(None),
 ):
+    # Tempo do solver (fase 2) TRAVADO em 180 s (o campo `tempo` é ignorado de propósito)
+    tempo_fase2 = 180.0
+
     # Resolve o contêiner escolhido
     if conteiner == "personalizado":
         if None in (cx, cy, cz, peso_max_kg, vol_max_m3):
@@ -171,9 +175,11 @@ async def iniciar_solver(
 
     job_id = uuid.uuid4().hex
     JOBS[job_id] = {"status": "executando"}
-    threading.Thread(target=_executar_solver, args=(job_id, cont, itens_dados), daemon=True).start()
+    threading.Thread(
+        target=_executar_solver, args=(job_id, cont, itens_dados, tempo_fase2), daemon=True
+    ).start()
 
-    return {"job_id": job_id, "itens_total": len(itens_dados)}
+    return {"job_id": job_id, "itens_total": len(itens_dados), "tempo_solver": tempo_fase2}
 
 
 @api.get("/api/jobs/{job_id}")

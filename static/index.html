@@ -49,6 +49,9 @@
 
       <!-- Centro: executar -->
       <section class="card">
+        <label class="rotulo" for="tempo-solver">Tempo do solver (s)</label>
+        <input type="number" id="tempo-solver" class="input-tempo" value="180" readonly>
+        <small class="dica">🔒 Tempo travado em 180 s e apoio mínimo em 75% da base.</small>
         <button id="btn-executar" class="btn-executar" disabled>▶ Executar solver</button>
         <div id="status-solver" class="status-solver"></div>
       </section>
