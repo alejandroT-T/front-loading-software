@@ -21,6 +21,17 @@
     <!-- ═══ Painel esquerdo ═══ -->
     <aside class="painel painel-esquerdo">
 
+      <!-- Modo de operação -->
+      <section class="card">
+        <h2>⚙️ Modo de operação</h2>
+        <div class="seletor-modo" role="tablist">
+          <button type="button" class="modo-btn ativo" data-modo="auto" role="tab">🤖 Automático</button>
+          <button type="button" class="modo-btn" data-modo="manual" role="tab">✋ Manual</button>
+          <button type="button" class="modo-btn" data-modo="hibrido" role="tab">🔀 Híbrido</button>
+        </div>
+        <small class="dica" id="modo-dica"></small>
+      </section>
+
       <!-- Superior: input dos dados -->
       <section class="card">
         <h2>📥 Dados de entrada</h2>
@@ -47,13 +58,25 @@
         <div id="info-conteiner" class="info-conteiner"></div>
       </section>
 
-      <!-- Centro: executar -->
-      <section class="card">
+      <!-- Centro: executar (modo automático) -->
+      <section class="card" id="card-executar">
         <label class="rotulo" for="tempo-solver">Tempo do solver (s)</label>
         <input type="number" id="tempo-solver" class="input-tempo" value="180" readonly>
         <small class="dica">🔒 Tempo travado em 180 s e apoio mínimo em 75% da base.</small>
         <button id="btn-executar" class="btn-executar" disabled>▶ Executar solver</button>
         <div id="status-solver" class="status-solver"></div>
+      </section>
+
+      <!-- Modo manual: carregar catálogo de caixas -->
+      <section class="card" id="card-manual" hidden>
+        <button id="btn-carregar" class="btn-executar" disabled>📋 Carregar caixas</button>
+        <small class="dica">Lê o catálogo da planilha; depois posicione caixa por caixa.</small>
+        <div id="status-manual" class="status-solver"></div>
+      </section>
+
+      <!-- Placeholder para modos ainda não implementados -->
+      <section class="card card-em-breve" id="card-em-breve" hidden>
+        <div id="em-breve-msg" class="em-breve"></div>
       </section>
 
       <!-- Inferior: informações gerais -->
@@ -72,19 +95,42 @@
       <div id="viewport" class="viewport">
         <div id="viewport-vazio" class="viewport-vazio">A visualização 3D aparecerá aqui após executar o solver.</div>
       </div>
-      <div class="controles">
+      <div class="controles" id="controles">
         <button id="btn-limpar" class="ctl" title="Esvazia o contêiner">🧹 Limpar</button>
         <button id="btn-prev" class="ctl seta" title="Retrocede 1 item">←</button>
         <span id="contador" class="contador">0 / 0</span>
         <button id="btn-next" class="ctl seta" title="Avança 1 item">→</button>
         <button id="btn-todos" class="ctl" title="Posiciona todos os itens">📦 Todos</button>
       </div>
+
+      <!-- Controles do modo manual: editor da caixa selecionada -->
+      <div class="controles" id="controles-manual" hidden>
+        <span id="manual-hint" class="contador">Clique numa caixa da paleta para posicionar.</span>
+        <span id="manual-editor" class="manual-editor" hidden>
+          <strong id="m-sel-nome" class="contador" title="Caixa selecionada">—</strong>
+          <label class="m-coord">X<input type="number" id="m-x" value="0"></label>
+          <label class="m-coord">Y<input type="number" id="m-y" value="0"></label>
+          <label class="m-coord">Z<input type="number" id="m-z" value="0"></label>
+          <button id="btn-girar" class="ctl" title="Gira 90° (troca X↔Y)">🔄 Girar</button>
+          <button id="btn-remover" class="ctl" title="Remove a caixa do contêiner">🗑 Remover</button>
+        </span>
+      </div>
     </section>
 
     <!-- ═══ Painel direito: itens carregados ═══ -->
     <aside class="painel painel-direito">
-      <h2 class="titulo-direito">📦 Itens no contêiner</h2>
-      <div id="lista-itens" class="lista-itens vazio">Nenhum item posicionado.</div>
+      <!-- Automático/Híbrido: itens posicionados pelo solver -->
+      <div id="painel-auto">
+        <h2 class="titulo-direito">📦 Itens no contêiner</h2>
+        <div id="lista-itens" class="lista-itens vazio">Nenhum item posicionado.</div>
+      </div>
+      <!-- Manual: paleta (a posicionar) + posicionadas -->
+      <div id="painel-manual" hidden>
+        <h2 class="titulo-direito">📋 A posicionar</h2>
+        <div id="manual-palette" class="lista-itens vazio">Carregue as caixas da planilha.</div>
+        <h2 class="titulo-direito">📦 Posicionadas</h2>
+        <div id="manual-placed" class="lista-itens vazio">Nenhuma caixa posicionada.</div>
+      </div>
     </aside>
   </main>
 

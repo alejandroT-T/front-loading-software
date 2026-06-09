@@ -129,6 +129,41 @@ def _executar_solver(job_id: str, cont: Conteiner, itens_dados: dict, tempo_fase
         JOBS[job_id] = {"status": "erro", "erro": str(exc)}
 
 
+async def _ler_planilha(arquivo: UploadFile) -> dict:
+    """Salva o upload .xlsx num temporário e carrega os itens via modelos.py.
+    Levanta HTTPException(400) em erro de formato/leitura. Retorna itens_dados."""
+    if not arquivo.filename or not arquivo.filename.lower().endswith(".xlsx"):
+        raise HTTPException(400, "Envie um arquivo .xlsx.")
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+        tmp.write(await arquivo.read())
+        caminho = Path(tmp.name)
+    try:
+        itens_dados = carregar_itens(caminho)
+    except KeyError as exc:
+        raise HTTPException(400, f"Coluna ausente na planilha: {exc}") from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(400, f"Falha ao ler a planilha: {exc}") from exc
+    finally:
+        caminho.unlink(missing_ok=True)
+    if not itens_dados:
+        raise HTTPException(400, "A planilha não contém itens.")
+    return itens_dados
+
+
+@api.post("/api/itens")
+async def listar_itens(arquivo: UploadFile = File(...)):
+    """Lê o catálogo de itens da planilha (nome + dimensões em cm), SEM rodar o
+    solver. Usado pelo modo MANUAL para montar a paleta de caixas a posicionar."""
+    itens_dados = await _ler_planilha(arquivo)
+    return {
+        "itens": [
+            {"nome": n, "x": d["x"], "y": d["y"], "z": d["z"],
+             "peso_kg": d["peso"] / 1000, "volume_cm3": d["volume"]}
+            for n, d in itens_dados.items()
+        ]
+    }
+
+
 @api.post("/api/solve")
 async def iniciar_solver(
     arquivo: UploadFile = File(...),
@@ -153,25 +188,7 @@ async def iniciar_solver(
     else:
         raise HTTPException(400, f"Contêiner desconhecido: {conteiner}")
 
-    # Salva o upload num temporário e carrega os itens via modelos.py
-    if not arquivo.filename or not arquivo.filename.lower().endswith(".xlsx"):
-        raise HTTPException(400, "Envie um arquivo .xlsx.")
-
-    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-        tmp.write(await arquivo.read())
-        caminho = Path(tmp.name)
-
-    try:
-        itens_dados = carregar_itens(caminho)
-    except KeyError as exc:
-        raise HTTPException(400, f"Coluna ausente na planilha: {exc}") from exc
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(400, f"Falha ao ler a planilha: {exc}") from exc
-    finally:
-        caminho.unlink(missing_ok=True)
-
-    if not itens_dados:
-        raise HTTPException(400, "A planilha não contém itens.")
+    itens_dados = await _ler_planilha(arquivo)
 
     job_id = uuid.uuid4().hex
     JOBS[job_id] = {"status": "executando"}

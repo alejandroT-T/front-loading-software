@@ -16,15 +16,25 @@ export const PALETA = [
 ];
 
 let renderer, labelRenderer, scene, camera, controls;
-let grupoCaixas = null;          // THREE.Group com uma caixa+label por item
+let grupoCaixas = null;          // THREE.Group com uma caixa+label por item (modo auto)
 let elContainer = null;
 let indiceSelecionado = null;    // índice do item destacado (null = nenhum)
-let aoSelecionarCb = null;       // callback do app ao clicar numa caixa
+let aoSelecionarCb = null;       // callback do app ao clicar numa caixa (auto)
+
+// ── Modo manual ──
+let grupoManual = null;          // THREE.Group das caixas posicionadas manualmente
+const caixasManual = new Map();  // id -> THREE.Mesh
+let modoManual = false;          // true no modo manual (habilita arrasto no piso)
+let selManual = null;            // id da caixa manual selecionada
+let aoSelManualCb = null;        // callback de seleção (modo manual)
+let aoMoverCb = null;            // callback de arrasto: (id, st_x, st_y, st_z)
 
 // Registra o callback chamado com o índice clicado (ou null no clique em vazio)
 export function onSelecionar(cb) {
   aoSelecionarCb = cb;
 }
+export function onSelManual(cb) { aoSelManualCb = cb; }
+export function onMoverManual(cb) { aoMoverCb = cb; }
 
 export function initScene(container) {
   elContainer = container;
@@ -56,26 +66,68 @@ export function initScene(container) {
   dir.position.set(1200, 2000, 800);
   scene.add(dir);
 
-  // Seleção por clique (raycasting) — ignora arrastes do OrbitControls
+  // Interação por ponteiro: clique = seleção; no modo manual, arrastar = mover no piso.
   const ray = new THREE.Raycaster();
-  let posDown = null;
+  let posDown = null, alvoArr = null, arrastou = false;
+  const planoArr = new THREE.Plane(), offsetArr = new THREE.Vector3(), pArr = new THREE.Vector3();
+
+  const ndcDe = (ev) => {
+    const r = renderer.domElement.getBoundingClientRect();
+    return new THREE.Vector2(
+      ((ev.clientX - r.left) / r.width) * 2 - 1,
+      -((ev.clientY - r.top) / r.height) * 2 + 1,
+    );
+  };
+
   renderer.domElement.addEventListener("pointerdown", (ev) => {
     posDown = [ev.clientX, ev.clientY];
+    arrastou = false; alvoArr = null;
+    if (modoManual && grupoManual) {
+      ray.setFromCamera(ndcDe(ev), camera);
+      const hits = ray.intersectObjects(grupoManual.children, false);
+      if (hits.length) {
+        alvoArr = hits[0].object;
+        controls.enabled = false;  // pegou uma caixa → trava o orbit (arrasta a caixa)
+      }
+    }
   });
-  renderer.domElement.addEventListener("pointerup", (ev) => {
-    if (!posDown) return;
-    const moveu = Math.hypot(ev.clientX - posDown[0], ev.clientY - posDown[1]) > 5;
-    posDown = null;
-    if (moveu || !grupoCaixas || !aoSelecionarCb) return;
 
-    const rect = renderer.domElement.getBoundingClientRect();
-    const ndc = new THREE.Vector2(
-      ((ev.clientX - rect.left) / rect.width) * 2 - 1,
-      -((ev.clientY - rect.top) / rect.height) * 2 + 1,
-    );
-    ray.setFromCamera(ndc, camera);
-    const hits = ray.intersectObjects(grupoCaixas.children.filter((c) => c.visible), false);
-    aoSelecionarCb(hits.length ? hits[0].object.userData.indice : null);
+  renderer.domElement.addEventListener("pointermove", (ev) => {
+    if (!modoManual || !alvoArr || posDown === null) return;
+    if (!arrastou) {
+      if (Math.hypot(ev.clientX - posDown[0], ev.clientY - posDown[1]) <= 5) return;
+      arrastou = true;
+      planoArr.set(new THREE.Vector3(0, 1, 0), -alvoArr.position.y);  // plano horizontal na altura da caixa
+      ray.setFromCamera(ndcDe(ev), camera);
+      ray.ray.intersectPlane(planoArr, pArr);
+      offsetArr.copy(alvoArr.position).sub(pArr);  // ponto onde "pegou" na caixa
+    }
+    ray.setFromCamera(ndcDe(ev), camera);
+    if (!ray.ray.intersectPlane(planoArr, pArr)) return;
+    pArr.add(offsetArr);
+    alvoArr.position.x = pArr.x;   // three X = backend X
+    alvoArr.position.z = pArr.z;   // three Z = backend Y
+    const d = alvoArr.userData;
+    if (aoMoverCb) aoMoverCb(d.id, Math.round(pArr.x - d.dx / 2), Math.round(pArr.z - d.dy / 2), d.stz);
+  });
+
+  renderer.domElement.addEventListener("pointerup", (ev) => {
+    const moveu = posDown && Math.hypot(ev.clientX - posDown[0], ev.clientY - posDown[1]) > 5;
+    const foiArrasto = arrastou;
+    controls.enabled = true;  // destrava o orbit ao soltar
+    posDown = null; alvoArr = null; arrastou = false;
+    if (foiArrasto) return;   // foi arrasto, não clique
+    if (moveu) return;        // orbitou → não seleciona
+    ray.setFromCamera(ndcDe(ev), camera);
+    if (modoManual) {
+      if (!grupoManual || !aoSelManualCb) return;
+      const hits = ray.intersectObjects(grupoManual.children, false);
+      aoSelManualCb(hits.length ? hits[0].object.userData.id : null);
+    } else {
+      if (!grupoCaixas || !aoSelecionarCb) return;
+      const hits = ray.intersectObjects(grupoCaixas.children.filter((c) => c.visible), false);
+      aoSelecionarCb(hits.length ? hits[0].object.userData.indice : null);
+    }
   });
 
   redimensionar();
@@ -98,16 +150,21 @@ function redimensionar() {
   labelRenderer.setSize(w, h);
 }
 
-// Monta a cena para um novo resultado do solver
-export function setCarga(itens, conteiner) {
-  // Remove cena anterior
-  if (grupoCaixas) {
-    scene.remove(grupoCaixas);
-    grupoCaixas.traverse((o) => {
-      if (o.geometry) o.geometry.dispose();
-      if (o.material) o.material.dispose();
-    });
-  }
+// Descarta geometrias/materiais de um objeto (e filhos) e remove os nós DOM dos
+// labels (CSS2DObject) — o CSS2DRenderer não os remove sozinho ao tirar da cena.
+function descartar(obj) {
+  obj.traverse((o) => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) o.material.dispose();
+    if (o.element && o.element.parentNode) o.element.parentNode.removeChild(o.element);  // label CSS2D
+  });
+}
+
+// Limpa a cena (auto + manual) e desenha o contêiner vazio + enquadra a câmera.
+// Compartilhado entre o modo automático (setCarga) e o manual (initManual).
+function desenharConteiner(conteiner) {
+  if (grupoCaixas) { scene.remove(grupoCaixas); descartar(grupoCaixas); grupoCaixas = null; }
+  if (grupoManual) { scene.remove(grupoManual); descartar(grupoManual); grupoManual = null; caixasManual.clear(); }
   scene.children.filter((o) => o.userData.fixo).forEach((o) => scene.remove(o));
 
   const { cx, cy, cz } = conteiner;
@@ -137,7 +194,19 @@ export function setCarga(itens, conteiner) {
   eixos.userData.fixo = true;
   scene.add(eixos);
 
-  // Caixas dos itens
+  // Câmera enquadrando o contêiner
+  const alvo = new THREE.Vector3(cx / 2, cz / 2, cy / 2);
+  controls.target.copy(alvo);
+  camera.position.set(cx * 1.05, cz * 2.6, cy * 4.2);
+  camera.lookAt(alvo);
+  controls.update();
+}
+
+// Monta a cena (somente leitura) para um resultado do solver
+export function setCarga(itens, conteiner) {
+  modoManual = false;
+  desenharConteiner(conteiner);
+
   grupoCaixas = new THREE.Group();
   itens.forEach((item, i) => {
     const cor = new THREE.Color(PALETA[i % PALETA.length]);
@@ -156,8 +225,6 @@ export function setCarga(itens, conteiner) {
     ));
 
     // Label com o nome do item — oculto; só aparece no item selecionado.
-    // O CSS2DRenderer reescreve element.style.display a cada frame a partir
-    // de label.visible, então o controle precisa ser pela propriedade visible.
     const div = document.createElement("div");
     div.className = "label-item";
     div.textContent = item.nome;
@@ -170,13 +237,6 @@ export function setCarga(itens, conteiner) {
   });
   scene.add(grupoCaixas);
   indiceSelecionado = null;
-
-  // Câmera enquadrando o contêiner
-  const alvo = new THREE.Vector3(cx / 2, cz / 2, cy / 2);
-  controls.target.copy(alvo);
-  camera.position.set(cx * 1.05, cz * 2.6, cy * 4.2);
-  camera.lookAt(alvo);
-  controls.update();
 }
 
 // Mostra apenas os n primeiros itens (ordem de entrada no contêiner)
@@ -204,5 +264,94 @@ function aplicarSelecao() {
     caixa.material.emissive.setHex(selecionado ? 0x2f2f2f : 0x000000);
     // Só o item selecionado (e visível na cena) exibe o label
     caixa.userData.label.visible = selecionado && caixa.visible;
+  });
+}
+
+// ═══ Modo manual ═════════════════════════════════════════════════════════════
+const COR_INVALIDA = new THREE.Color(0xf85149);
+
+// Entra no modo manual: limpa a cena e desenha o contêiner vazio
+export function initManual(conteiner) {
+  modoManual = true;
+  desenharConteiner(conteiner);
+  grupoManual = new THREE.Group();
+  scene.add(grupoManual);
+  caixasManual.clear();
+  selManual = null;
+}
+
+// Adiciona uma caixa posicionável. Coords em backend (cm): st_x/st_y/st_z.
+export function adicionarCaixaManual({ id, nome, dx, dy, dz, stx = 0, sty = 0, stz = 0, indiceCor = 0 }) {
+  if (!grupoManual) return;
+  const corBase = new THREE.Color(PALETA[indiceCor % PALETA.length]);
+  const geo = new THREE.BoxGeometry(dx, dz, dy);
+  const mat = new THREE.MeshLambertMaterial({ color: corBase.clone(), transparent: true, opacity: 0.85 });
+  const caixa = new THREE.Mesh(geo, mat);
+  caixa.position.set(stx + dx / 2, stz + dz / 2, sty + dy / 2);
+  caixa.userData = { id, dx, dy, dz, stz, corBase };
+
+  caixa.add(new THREE.LineSegments(
+    new THREE.EdgesGeometry(geo),
+    new THREE.LineBasicMaterial({ color: 0x000000 }),
+  ));
+
+  const div = document.createElement("div");
+  div.className = "label-item";
+  div.textContent = nome;
+  const label = new CSS2DObject(div);
+  label.visible = false;
+  caixa.userData.label = label;
+  caixa.add(label);
+
+  caixasManual.set(id, caixa);
+  grupoManual.add(caixa);
+}
+
+// Reposiciona a caixa (backend cm). Atualiza st_z guardado para o arrasto.
+export function moverCaixaManual(id, stx, sty, stz) {
+  const c = caixasManual.get(id);
+  if (!c) return;
+  const d = c.userData;
+  d.stz = stz;
+  c.position.set(stx + d.dx / 2, stz + d.dz / 2, sty + d.dy / 2);
+}
+
+// Gira 90° (troca X↔Y): recria a geometria com a nova pegada (dz inalterado).
+// O app deve chamar moverCaixaManual em seguida para manter st_x/st_y.
+export function girarCaixaManual(id, dx, dy) {
+  const c = caixasManual.get(id);
+  if (!c) return;
+  const d = c.userData;
+  d.dx = dx; d.dy = dy;
+  const geo = new THREE.BoxGeometry(dx, d.dz, dy);
+  c.geometry.dispose();
+  c.geometry = geo;
+  const arestas = c.children.find((o) => o.isLineSegments);
+  if (arestas) { arestas.geometry.dispose(); arestas.geometry = new THREE.EdgesGeometry(geo); }
+}
+
+export function removerCaixaManual(id) {
+  const c = caixasManual.get(id);
+  if (!c) return;
+  grupoManual.remove(c);
+  descartar(c);
+  caixasManual.delete(id);
+  if (selManual === id) selManual = null;
+}
+
+// Destaca a caixa de id (null = nenhuma): brilho + label
+export function selecionarCaixaManual(id) {
+  selManual = id;
+  caixasManual.forEach((c, key) => {
+    const sel = key === id;
+    c.material.emissive.setHex(sel ? 0x2f2f2f : 0x000000);
+    c.userData.label.visible = sel;
+  });
+}
+
+// Pinta de vermelho as caixas cujo id está no Set `ids` (sobreposição/fora); o resto volta à cor base
+export function marcarInvalidos(ids) {
+  caixasManual.forEach((c, key) => {
+    c.material.color.copy(ids.has(key) ? COR_INVALIDA : c.userData.corBase);
   });
 }

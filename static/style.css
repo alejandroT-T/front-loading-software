@@ -66,6 +66,38 @@ body {
 
 .dica { display: block; font-size: 11px; color: var(--texto-suave); margin: 4px 0 10px; opacity: 0.8; }
 
+/* Seletor de modo (segmentado) */
+.seletor-modo { display: flex; gap: 4px; background: var(--fundo); border: 1px solid var(--borda); border-radius: 6px; padding: 4px; }
+.modo-btn {
+  flex: 1; padding: 8px 4px; font-size: 12px; font-weight: 600; cursor: pointer;
+  background: transparent; color: var(--texto-suave);
+  border: none; border-radius: 4px; transition: background 0.15s, color 0.15s;
+}
+.modo-btn:hover { color: var(--texto); }
+.modo-btn.ativo { background: var(--acento); color: #fff; }
+
+.card-em-breve { border-style: dashed; }
+.em-breve { font-size: 13px; color: var(--texto-suave); text-align: center; padding: 8px 4px; line-height: 1.5; }
+
+/* Modo manual — paleta e posicionadas (reaproveita .lista-itens) */
+.pal-item, .placed-item {
+  border-left: 4px solid var(--cor-item, var(--borda));
+  background: var(--card); border: 1px solid var(--borda);
+  border-radius: 6px; padding: 8px 10px; margin-bottom: 6px;
+  font-size: 12px; cursor: pointer; transition: border-color 0.12s, background 0.12s;
+}
+.pal-item:hover, .placed-item:hover { background: #2a3540; }
+.pal-item small, .placed-item small { color: var(--texto-suave); }
+.placed-item.selecionado { outline: 2px solid var(--acento); }
+.placed-item.invalido { border-color: var(--erro); }
+.placed-item.invalido small { color: var(--erro); }
+.vazio-msg { color: var(--texto-suave); font-size: 12px; padding: 6px 2px; }
+
+/* Editor da caixa selecionada (barra de controles manual) */
+.manual-editor { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.m-coord { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--texto-suave); }
+.m-coord input { width: 60px; padding: 4px 6px; background: var(--fundo); color: var(--texto); border: 1px solid var(--borda); border-radius: 4px; }
+
 .file-drop {
   display: block;
   border: 1px dashed var(--borda);

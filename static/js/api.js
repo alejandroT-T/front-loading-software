@@ -6,6 +6,13 @@ export async function listarConteineres() {
   return (await resp.json()).conteineres;
 }
 
+export async function carregarItens(formData) {
+  const resp = await fetch("/api/itens", { method: "POST", body: formData });
+  const corpo = await resp.json();
+  if (!resp.ok) throw new Error(corpo.detail || "Falha ao ler a planilha.");
+  return corpo.itens; // [{ nome, x, y, z, peso_kg, volume_cm3 }]
+}
+
 export async function iniciarSolver(formData) {
   const resp = await fetch("/api/solve", { method: "POST", body: formData });
   const corpo = await resp.json();
