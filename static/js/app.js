@@ -185,8 +185,8 @@ $("btn-executar").addEventListener("click", async () => {
 
   try {
     const { job_id } = await iniciarSolver(fd);
-    const resultado = await aguardarResultado(job_id, (seg) => {
-      setStatus(`⏳ Executando solver… ${seg}s`);
+    const resultado = await aguardarResultado(job_id, (seg, fase) => {
+      setStatus(`⏳ ${fase || "Executando solver…"} — ${seg}s`);
     });
     estado.resultado = resultado;
     setStatus("✅ Solução encontrada!", "ok");
@@ -693,7 +693,8 @@ $("btn-hibrido").addEventListener("click", async () => {
 
     setStatusHibrido("⏳ Enviando ao solver…");
     const { job_id } = await iniciarSolver(fd);
-    const resultado = await aguardarResultado(job_id, (seg) => setStatusHibrido(`⏳ Executando solver… ${seg}s`));
+    const resultado = await aguardarResultado(job_id, (seg, fase) =>
+      setStatusHibrido(`⏳ ${fase || "Executando solver…"} — ${seg}s`));
 
     const ed = montarEditorHibrido(resultado, catalogo);
     if (estado.modo === "hibrido") {

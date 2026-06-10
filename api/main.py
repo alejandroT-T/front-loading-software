@@ -119,8 +119,14 @@ def _montar_resultado(lista: list, itens_dados: dict, cont: Conteiner) -> dict:
 
 
 def _executar_solver(job_id: str, cont: Conteiner, itens_dados: dict, tempo_fase2: float) -> None:
+    def _progresso(msg: str) -> None:
+        job = JOBS.get(job_id)
+        if job is not None and job.get("status") == "executando":
+            job["fase"] = msg
+
     try:
-        lista, dados = resolver_carregamento(cont, itens_dados, tempo_fase2=tempo_fase2)
+        lista, dados = resolver_carregamento(cont, itens_dados, tempo_fase2=tempo_fase2,
+                                             progresso=_progresso)
         if not lista:
             JOBS[job_id] = {"status": "erro", "erro": "O solver não encontrou solução viável."}
             return

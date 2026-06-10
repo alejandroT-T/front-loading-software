@@ -68,7 +68,7 @@ static/
 - `POST /api/itens` — multipart: `arquivo` (.xlsx). Lê o **catálogo** de itens via `carregar_itens` **sem rodar o solver** e retorna `{itens: [{nome, x, y, z (cm), peso_kg, volume_cm3}]}`. Usado pelo **modo manual** para montar a paleta de caixas.
 - `POST /api/solve` — multipart: `arquivo` (.xlsx) + `conteiner` (id ou `"personalizado"` com `cx/cy/cz/peso_max_kg/vol_max_m3`). Lê a planilha, dispara o solver numa **thread daemon** e retorna `{job_id, itens_total, tempo_solver}` imediatamente (o solver pode levar minutos). O campo `tempo` do form é ignorado: tempo da fase 2 travado em 180 s.
 - A leitura/validação do `.xlsx` é centralizada no helper `_ler_planilha(arquivo)` (usado por `/api/itens` e `/api/solve`).
-- `GET /api/jobs/{job_id}` — polling: `{status: "executando"|"concluido"|"erro", resultado?, erro?}`. Jobs ficam em memória no dict `JOBS` (perdidos a cada restart).
+- `GET /api/jobs/{job_id}` — polling: `{status: "executando"|"concluido"|"erro", fase?, resultado?, erro?}`. `fase` é a fase em andamento do solver ("Fase N de 3 — …"), alimentada pelo callback `progresso` de `resolver_carregamento`; o front exibe no status junto ao contador de segundos. Jobs ficam em memória no dict `JOBS` (perdidos a cada restart).
 - `app.mount("/")` com `StaticFiles` serve `static/` — montado **por último** para não capturar `/api/*`.
 - No topo do módulo, `sys.stdout/stderr` são reconfigurados para UTF-8: os `print()` do backend usam emojis que quebram no console charmap do Windows.
 - O resultado do solver é remontado em `_montar_resultado()`: estatísticas (peso/volume/avanço/pesados no chão via `LIMITE_PESADO_G`), itens posicionados em ordem de entrada e itens não carregados.

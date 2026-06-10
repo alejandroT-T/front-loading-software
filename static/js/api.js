@@ -23,17 +23,17 @@ export async function iniciarSolver(formData) {
 export async function consultarJob(jobId) {
   const resp = await fetch(`/api/jobs/${jobId}`);
   if (!resp.ok) throw new Error("Job não encontrado.");
-  return resp.json(); // { status, resultado?, erro? }
+  return resp.json(); // { status, fase?, resultado?, erro? }
 }
 
-// Faz polling até o job terminar; chama aoProgresso(segundosDecorridos) a cada ciclo
+// Faz polling até o job terminar; chama aoProgresso(segundosDecorridos, fase) a cada ciclo
 export async function aguardarResultado(jobId, aoProgresso, intervaloMs = 1500) {
   const inicio = performance.now();
   for (;;) {
     const job = await consultarJob(jobId);
     if (job.status === "concluido") return job.resultado;
     if (job.status === "erro") throw new Error(job.erro);
-    aoProgresso(Math.round((performance.now() - inicio) / 1000));
+    aoProgresso(Math.round((performance.now() - inicio) / 1000), job.fase);
     await new Promise((r) => setTimeout(r, intervaloMs));
   }
 }
