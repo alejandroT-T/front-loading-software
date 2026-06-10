@@ -74,9 +74,11 @@
         <div id="status-manual" class="status-solver"></div>
       </section>
 
-      <!-- Placeholder para modos ainda não implementados -->
-      <section class="card card-em-breve" id="card-em-breve" hidden>
-        <div id="em-breve-msg" class="em-breve"></div>
+      <!-- Modo híbrido: roda o solver e abre o resultado no editor manipulável -->
+      <section class="card" id="card-hibrido" hidden>
+        <button id="btn-hibrido" class="btn-executar" disabled>▶ Rodar solver e editar</button>
+        <small class="dica">🔒 Solver 180 s, apoio 75%. Depois arraste/edite as cargas e adicione as sobras.</small>
+        <div id="status-hibrido" class="status-solver"></div>
       </section>
 
       <!-- Inferior: informações gerais -->
@@ -111,7 +113,9 @@
           <label class="m-coord">X<input type="number" id="m-x" value="0"></label>
           <label class="m-coord">Y<input type="number" id="m-y" value="0"></label>
           <label class="m-coord">Z<input type="number" id="m-z" value="0"></label>
-          <button id="btn-girar" class="ctl" title="Gira 90° (troca X↔Y)">🔄 Girar</button>
+          <button id="btn-girar" class="ctl" title="Gira 90° no plano (troca comprimento ↔ largura)">🔄 X↔Y</button>
+          <button id="btn-girar-xz" class="ctl" title="Tomba a caixa para frente (troca comprimento ↔ altura)">🔄 X↔Z</button>
+          <button id="btn-girar-yz" class="ctl" title="Tomba a caixa de lado (troca largura ↔ altura)">🔄 Y↔Z</button>
           <button id="btn-remover" class="ctl" title="Remove a caixa do contêiner">🗑 Remover</button>
         </span>
       </div>

@@ -160,12 +160,20 @@ function descartar(obj) {
   });
 }
 
-// Limpa a cena (auto + manual) e desenha o contêiner vazio + enquadra a câmera.
-// Compartilhado entre o modo automático (setCarga) e o manual (initManual).
-function desenharConteiner(conteiner) {
+// Esvazia a cena por completo (caixas auto + manual + contêiner). Usada ao
+// trocar de modo quando o novo modo ainda não tem nada para mostrar.
+export function limparCena() {
   if (grupoCaixas) { scene.remove(grupoCaixas); descartar(grupoCaixas); grupoCaixas = null; }
   if (grupoManual) { scene.remove(grupoManual); descartar(grupoManual); grupoManual = null; caixasManual.clear(); }
   scene.children.filter((o) => o.userData.fixo).forEach((o) => scene.remove(o));
+  indiceSelecionado = null;
+  selManual = null;
+}
+
+// Limpa a cena (auto + manual) e desenha o contêiner vazio + enquadra a câmera.
+// Compartilhado entre o modo automático (setCarga) e o manual (initManual).
+function desenharConteiner(conteiner) {
+  limparCena();
 
   const { cx, cy, cz } = conteiner;
 
@@ -316,14 +324,14 @@ export function moverCaixaManual(id, stx, sty, stz) {
   c.position.set(stx + d.dx / 2, stz + d.dz / 2, sty + d.dy / 2);
 }
 
-// Gira 90° (troca X↔Y): recria a geometria com a nova pegada (dz inalterado).
-// O app deve chamar moverCaixaManual em seguida para manter st_x/st_y.
-export function girarCaixaManual(id, dx, dy) {
+// Rotaciona a caixa (qualquer troca entre dx/dy/dz): recria a geometria com as
+// novas dimensões. O app deve chamar moverCaixaManual em seguida p/ manter st_*.
+export function redimensionarCaixaManual(id, dx, dy, dz) {
   const c = caixasManual.get(id);
   if (!c) return;
   const d = c.userData;
-  d.dx = dx; d.dy = dy;
-  const geo = new THREE.BoxGeometry(dx, d.dz, dy);
+  d.dx = dx; d.dy = dy; d.dz = dz;
+  const geo = new THREE.BoxGeometry(dx, dz, dy);
   c.geometry.dispose();
   c.geometry = geo;
   const arestas = c.children.find((o) => o.isLineSegments);

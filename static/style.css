@@ -88,7 +88,8 @@ body {
 }
 .pal-item:hover, .placed-item:hover { background: #2a3540; }
 .pal-item small, .placed-item small { color: var(--texto-suave); }
-.placed-item.selecionado { outline: 2px solid var(--acento); }
+.placed-item.selecionado { outline: 2px solid var(--acento); line-height: 1.7; }
+.placed-item .item-titulo { font-weight: 700; font-size: 12.5px; margin-bottom: 4px; }
 .placed-item.invalido { border-color: var(--erro); }
 .placed-item.invalido small { color: var(--erro); }
 .vazio-msg { color: var(--texto-suave); font-size: 12px; padding: 6px 2px; }

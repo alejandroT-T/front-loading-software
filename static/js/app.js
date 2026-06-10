@@ -2,25 +2,45 @@
 
 import { listarConteineres, carregarItens, iniciarSolver, aguardarResultado } from "./api.js";
 import {
-  initScene, setCarga, mostrarAte, PALETA, onSelecionar, selecionarItem,
-  initManual, adicionarCaixaManual, moverCaixaManual, girarCaixaManual,
+  initScene, setCarga, mostrarAte, PALETA, onSelecionar, selecionarItem, limparCena,
+  initManual, adicionarCaixaManual, moverCaixaManual, redimensionarCaixaManual,
   removerCaixaManual, selecionarCaixaManual, marcarInvalidos, onSelManual, onMoverManual,
 } from "./scene.js";
 
 const $ = (id) => document.getElementById(id);
 
+// Estado de um editor manipulável (manual e híbrido têm cada um o seu,
+// para que trocar de modo não misture os carregamentos)
+function novoEditor() {
+  return {
+    catalogo: [],   // [{nome, x, y, z, peso_kg, volume_cm3, idxCor}] da planilha
+    cont: null,     // contêiner ativo (cx/cy/cz/peso_max_kg/vol_max_m3)
+    manual: { posicionadas: [], selId: null, invalid: new Set() },
+  };
+}
+
 const estado = {
-  modo: "auto",      // "auto" | "manual" | "hibrido"
+  modo: null,        // "auto" | "manual" | "hibrido" (null até o setModo inicial)
   conteineres: [],   // catálogo vindo da API
+  // Modo automático
   resultado: null,   // resposta do solver
   visiveis: 0,       // quantos itens estão posicionados na cena
   selecionado: null, // índice do item destacado (null = nenhum)
   executando: false,
-  // Modo manual
-  catalogo: [],      // [{nome, x, y, z, peso_kg, volume_cm3, idxCor}] da planilha
-  contManual: null,  // contêiner ativo no manual (cx/cy/cz/peso_max_kg/vol_max_m3)
-  manual: { posicionadas: [], selId: null, invalid: new Set() },
+  // Editores manipuláveis — um por modo; o ativo é espelhado em catalogo/contManual/manual
+  editorAtivo: "manual",
+  editores: { manual: novoEditor(), hibrido: novoEditor() },
+  catalogo: [],
+  contManual: null,
+  manual: null,
 };
+// Espelha o editor inicial nas referências ativas
+{
+  const e = estado.editores[estado.editorAtivo];
+  estado.catalogo = e.catalogo;
+  estado.contManual = e.cont;
+  estado.manual = e.manual;
+}
 
 // ═══ Inicialização ══════════════════════════════════════════════════════════
 
@@ -28,8 +48,8 @@ initScene($("viewport"));
 carregarConteineres();
 
 // ═══ Modo de operação ════════════════════════════════════════════════════════
-// Etapa 1: só "auto" (rodar solver) está funcional; "manual" (etapa 2) e
-// "hibrido" (etapa 3) ficam visíveis como placeholder até serem implementados.
+// Cada modo mantém seu próprio estado e sua própria cena 3D: alternar entre
+// eles não mistura nada — serve justamente para comparar os carregamentos.
 
 const MODOS = {
   auto:    "Rodar o solver: empilhamento e empacotamento automático.",
@@ -38,23 +58,41 @@ const MODOS = {
 };
 
 function setModo(modo) {
+  if (modo === estado.modo) return;
+
+  // Guarda o editor do modo anterior e ativa o do novo — manual e híbrido são
+  // independentes, e o resultado do automático fica intacto em estado.resultado.
+  estado.editores[estado.editorAtivo] =
+    { catalogo: estado.catalogo, cont: estado.contManual, manual: estado.manual };
+  const auto = modo === "auto", manual = modo === "manual", hibrido = modo === "hibrido";
+  const editavel = manual || hibrido;  // ambos usam o editor manipulável (paleta/posicionadas/edição)
+  if (editavel) {
+    estado.editorAtivo = modo;
+    const e = estado.editores[modo];
+    estado.catalogo = e.catalogo;
+    estado.contManual = e.cont;
+    estado.manual = e.manual;
+  }
   estado.modo = modo;
+
   document.querySelectorAll(".modo-btn").forEach((b) =>
     b.classList.toggle("ativo", b.dataset.modo === modo));
   $("modo-dica").textContent = MODOS[modo];
 
-  const auto = modo === "auto", manual = modo === "manual", hibrido = modo === "hibrido";
   // Cards de ação (painel esquerdo)
   $("card-executar").hidden = !auto;
   $("card-manual").hidden = !manual;
-  $("card-em-breve").hidden = !hibrido;
-  if (hibrido) $("em-breve-msg").innerHTML = "🚧 Modo híbrido<br>em implementação (etapa 3).";
+  $("card-hibrido").hidden = !hibrido;
   // Barra de controles (centro)
   $("controles").hidden = !auto;
-  $("controles-manual").hidden = !manual;
+  $("controles-manual").hidden = !editavel;
   // Painel direito
-  $("painel-auto").hidden = manual;
-  $("painel-manual").hidden = !manual;
+  $("painel-auto").hidden = editavel;
+  $("painel-manual").hidden = !editavel;
+
+  // Cada modo mantém sua própria cena: reconstrói o visual do modo que entrou
+  if (auto) reconstruirCenaAuto();
+  else reconstruirCenaManual();
 }
 
 document.querySelectorAll(".modo-btn").forEach((b) =>
@@ -114,6 +152,7 @@ $("arquivo").addEventListener("change", () => {
   $("file-drop").classList.toggle("tem-arquivo", !!f);
   $("btn-executar").disabled = !f;
   $("btn-carregar").disabled = !f;
+  $("btn-hibrido").disabled = !f;
 });
 
 $("conteiner").addEventListener("change", atualizarInfoConteiner);
@@ -169,9 +208,16 @@ function setStatus(msg, classe = "") {
 // ═══ Apresentação do resultado ══════════════════════════════════════════════
 
 function apresentarResultado(r) {
-  $("viewport-vazio").style.display = "none";
+  // Cena 3D — começa com todos os itens posicionados, sem seleção.
+  // Se o usuário trocou de modo enquanto o solver rodava, não desenha agora:
+  // o resultado fica em estado.resultado e reaparece ao voltar pro automático.
+  estado.selecionado = null;
+  estado.visiveis = r.itens.length;
+  if (estado.modo === "auto") reconstruirCenaAuto();
+}
 
-  // Estatísticas gerais (painel esquerdo-inferior)
+// Estatísticas gerais + itens não carregados (painel esquerdo-inferior)
+function renderInfoAuto(r) {
   const e = r.estatisticas;
   const pesoPct = (100 * e.peso_total_kg / e.peso_max_kg).toFixed(1);
   const volPct = (100 * e.volume_total_cm3 / e.volume_max_cm3).toFixed(1);
@@ -198,11 +244,57 @@ function apresentarResultado(r) {
   } else {
     box.hidden = true;
   }
+}
 
-  // Cena 3D — começa com todos os itens posicionados, sem seleção
-  estado.selecionado = null;
+// ═══ Reconstrução da cena por modo ═══════════════════════════════════════════
+// Cada modo guarda seu próprio estado; ao alternar, a cena 3D e os painéis são
+// remontados a partir do estado do modo que entrou (permite comparar os modos).
+
+function reconstruirCenaAuto() {
+  if (!estado.resultado) {
+    limparCena();
+    $("viewport-vazio").textContent = "A visualização 3D aparecerá aqui após executar o solver.";
+    $("viewport-vazio").style.display = "";
+    $("contador").textContent = "0 / 0";
+    $("stats").className = "stats vazio";
+    $("stats").textContent = "Execute o solver para ver as estatísticas.";
+    $("nao-carregados-box").hidden = true;
+    renderizarPainelDireito();
+    return;
+  }
+  const r = estado.resultado;
+  $("viewport-vazio").style.display = "none";
   setCarga(r.itens, r.conteiner);
-  setVisiveis(r.itens.length);
+  renderInfoAuto(r);
+  const sel = estado.selecionado;
+  setVisiveis(estado.visiveis);
+  setSelecionado(sel !== null && sel < estado.visiveis ? sel : null);
+}
+
+function reconstruirCenaManual() {
+  $("nao-carregados-box").hidden = true;
+  if (!estado.contManual) {
+    limparCena();
+    $("viewport-vazio").textContent = estado.modo === "hibrido"
+      ? "Rode o solver para editar o resultado aqui."
+      : "Carregue as caixas da planilha para começar a posicionar.";
+    $("viewport-vazio").style.display = "";
+    $("stats").className = "stats vazio";
+    $("stats").textContent = "Carregue as caixas para ver as estatísticas.";
+    renderManual();
+    return;
+  }
+  const c = estado.contManual;
+  $("viewport-vazio").style.display = "none";
+  initManual({ cx: c.cx, cy: c.cy, cz: c.cz });
+  for (const p of estado.manual.posicionadas) {
+    adicionarCaixaManual({ id: p.id, nome: p.id, dx: p.dx, dy: p.dy, dz: p.dz,
+                           stx: p.stx, sty: p.sty, stz: p.stz, indiceCor: p.idxCor });
+  }
+  selecionarCaixaManual(estado.manual.selId);
+  $("stats").className = "stats";
+  recalcManual();   // recomputa inválidos, pinta as caixas e atualiza as stats
+  renderManual();
 }
 
 // ═══ Controle interativo (←  →  Todos  Limpar) ═════════════════════════════
@@ -313,14 +405,19 @@ $("btn-carregar").addEventListener("click", async () => {
   try {
     setStatusManual("⏳ Lendo planilha…");
     const itens = await carregarItens(fd);
-    estado.catalogo = itens.map((it, i) => ({ ...it, idxCor: i }));
-    estado.contManual = cont;
-    estado.manual = { posicionadas: [], selId: null, invalid: new Set() };
-    initManual({ cx: cont.cx, cy: cont.cy, cz: cont.cz });
-    $("viewport-vazio").style.display = "none";
+    const ed = novoEditor();
+    ed.catalogo = itens.map((it, i) => ({ ...it, idxCor: i }));
+    ed.cont = cont;
+    if (estado.modo === "manual") {
+      estado.catalogo = ed.catalogo;
+      estado.contManual = ed.cont;
+      estado.manual = ed.manual;
+      reconstruirCenaManual();
+    } else {
+      // usuário trocou de modo durante a leitura: guarda no slot do manual
+      estado.editores.manual = ed;
+    }
     setStatusManual(`✅ ${itens.length} caixas no catálogo.`, "ok");
-    renderManual();
-    atualizarStatsManual();
   } catch (e) {
     setStatusManual(`❌ ${e.message}`, "erro");
   }
@@ -416,13 +513,27 @@ function renderManual() {
   if (P.length) {
     elPl.innerHTML = P.map((p) => {
       const inval = estado.manual.invalid.has(p.id) ? " invalido" : "";
-      const sel = p.id === estado.manual.selId ? " selecionado" : "";
-      return `<div class="placed-item${sel}${inval}" data-id="${p.id}" style="--cor-item:${PALETA[p.idxCor % PALETA.length]}">
-        📦 ${p.id}<br><small>X${p.stx} Y${p.sty} Z${p.stz} | ${p.dx}×${p.dy}×${p.dz} cm${p.girado ? " (girado)" : ""}</small>
+      const sel = p.id === estado.manual.selId;
+      const rot = p.girado ? " (rotacionada)" : "";
+      const cor = PALETA[p.idxCor % PALETA.length];
+      // Caixa selecionada: card expandido com os detalhes (posição, tamanho, peso)
+      if (sel) {
+        return `<div class="placed-item selecionado${inval}" data-id="${p.id}" style="--cor-item:${cor}">
+          <div class="item-titulo">📦 ${p.id}</div>
+          📍 Posição: <span class="pos-sel">X ${p.stx} | Y ${p.sty} | Z ${p.stz} cm</span><br>
+          📐 Tamanho: ${p.dx}×${p.dy}×${p.dz} cm${rot}<br>
+          ⚖️ Peso: ${fmt(p.item.peso_kg, 1)} kg
+        </div>`;
+      }
+      return `<div class="placed-item${inval}" data-id="${p.id}" style="--cor-item:${cor}">
+        📦 ${p.id}<br><small>X${p.stx} Y${p.sty} Z${p.stz} | ${p.dx}×${p.dy}×${p.dz} cm${rot} | ${fmt(p.item.peso_kg, 1)} kg</small>
       </div>`;
     }).join("");
     elPl.querySelectorAll(".placed-item").forEach((el) =>
       el.addEventListener("click", () => selecionarManualId(el.dataset.id)));
+    // Direciona a lista para a caixa selecionada (clicada na cena 3D ou na lista)
+    const cardSel = elPl.querySelector(".placed-item.selecionado");
+    if (cardSel) cardSel.scrollIntoView({ block: "nearest", behavior: "smooth" });
   } else {
     elPl.innerHTML = "<div class='vazio-msg'>Nenhuma caixa posicionada.</div>";
   }
@@ -442,6 +553,15 @@ function atualizarEditorCampos() {
   }
 }
 
+// Atualiza só a posição no card expandido da caixa selecionada (sem re-render
+// da lista — usado no arrasto e na edição de X/Y/Z, que disparam a cada evento)
+function atualizarCardSel() {
+  const reg = regSel();
+  if (!reg) return;
+  const pos = $("manual-placed").querySelector(".placed-item.selecionado .pos-sel");
+  if (pos) pos.textContent = `X ${reg.stx} | Y ${reg.sty} | Z ${reg.stz} cm`;
+}
+
 function aplicarCampos() {
   const reg = regSel();
   if (!reg) return;
@@ -450,19 +570,28 @@ function aplicarCampos() {
   reg.stz = Math.round(Number($("m-z").value) || 0);
   moverCaixaManual(reg.id, reg.stx, reg.sty, reg.stz);
   recalcManual();
+  atualizarCardSel();
 }
 ["m-x", "m-y", "m-z"].forEach((id) => $(id).addEventListener("input", aplicarCampos));
 
-$("btn-girar").addEventListener("click", () => {
+// Rotação da caixa selecionada: troca duas das dimensões (90° em torno de um eixo).
+// X↔Y gira no plano; X↔Z e Y↔Z tombam a caixa. Vale para manual e híbrido —
+// é só manipulação visual, o solver não é afetado.
+function rotacionarSel(a, b) {
   const reg = regSel();
   if (!reg) return;
-  [reg.dx, reg.dy] = [reg.dy, reg.dx];
-  reg.girado = !reg.girado;
-  girarCaixaManual(reg.id, reg.dx, reg.dy);
-  moverCaixaManual(reg.id, reg.stx, reg.sty, reg.stz);  // mantém st_* após trocar a pegada
+  [reg[a], reg[b]] = [reg[b], reg[a]];
+  reg.girado = reg.item.x != null
+    ? (reg.dx !== reg.item.x || reg.dy !== reg.item.y || reg.dz !== reg.item.z)
+    : !reg.girado;  // item sem dims no catálogo (híbrido): só alterna a marca
+  redimensionarCaixaManual(reg.id, reg.dx, reg.dy, reg.dz);
+  moverCaixaManual(reg.id, reg.stx, reg.sty, reg.stz);  // mantém st_* após trocar as dimensões
   recalcManual();
   renderManual();
-});
+}
+$("btn-girar").addEventListener("click", () => rotacionarSel("dx", "dy"));
+$("btn-girar-xz").addEventListener("click", () => rotacionarSel("dx", "dz"));
+$("btn-girar-yz").addEventListener("click", () => rotacionarSel("dy", "dz"));
 
 $("btn-remover").addEventListener("click", () => {
   const reg = regSel();
@@ -483,7 +612,88 @@ onMoverManual((id, stx, sty, stz) => {
   reg.stx = stx; reg.sty = sty; reg.stz = stz;
   recalcManual();
   atualizarEditorCampos();
+  atualizarCardSel();
 });
+
+// ═══ Modo híbrido ════════════════════════════════════════════════════════════
+// Roda o solver (como o automático) e abre o resultado no MESMO editor do modo
+// manual: os itens posicionados pelo solver viram caixas arrastáveis e os itens
+// não carregados entram na paleta "A posicionar" para o usuário completar à mão.
+
+function setStatusHibrido(msg, classe = "") {
+  const el = $("status-hibrido");
+  el.textContent = msg;
+  el.className = `status-solver ${classe}`;
+}
+
+$("btn-hibrido").addEventListener("click", async () => {
+  if (estado.executando) return;
+  const arquivo = $("arquivo").files[0];
+  if (!arquivo) { setStatusHibrido("⚠ Escolha a planilha.", "erro"); return; }
+  const contSel = conteinerAtual();
+  if (!contSel || !contSel.cx) { setStatusHibrido("⚠ Defina o contêiner.", "erro"); return; }
+
+  const fd = new FormData();
+  fd.append("arquivo", arquivo);
+  fd.append("conteiner", $("conteiner").value);
+  if ($("conteiner").value === "personalizado") {
+    const campos = { cx: "p-cx", cy: "p-cy", cz: "p-cz", peso_max_kg: "p-peso", vol_max_m3: "p-vol" };
+    for (const [k, id] of Object.entries(campos)) {
+      const v = $(id).value;
+      if (!v) { setStatusHibrido("⚠ Preencha as dimensões do contêiner personalizado.", "erro"); return; }
+      fd.append(k, v);
+    }
+  }
+  const fdItens = new FormData();
+  fdItens.append("arquivo", arquivo);
+
+  estado.executando = true;
+  $("btn-hibrido").disabled = true;
+  try {
+    setStatusHibrido("⏳ Lendo catálogo…");
+    const catalogo = (await carregarItens(fdItens)).map((it, i) => ({ ...it, idxCor: i }));
+
+    setStatusHibrido("⏳ Enviando ao solver…");
+    const { job_id } = await iniciarSolver(fd);
+    const resultado = await aguardarResultado(job_id, (seg) => setStatusHibrido(`⏳ Executando solver… ${seg}s`));
+
+    const ed = montarEditorHibrido(resultado, catalogo);
+    if (estado.modo === "hibrido") {
+      estado.catalogo = ed.catalogo;
+      estado.contManual = ed.cont;
+      estado.manual = ed.manual;
+      reconstruirCenaManual();
+    } else {
+      // usuário trocou de modo durante o solve: guarda no slot do híbrido
+      estado.editores.hibrido = ed;
+    }
+    setStatusHibrido(`✅ Solver posicionou ${resultado.itens.length} itens. Arraste/edite ou adicione as sobras.`, "ok");
+  } catch (e) {
+    setStatusHibrido(`❌ ${e.message}`, "erro");
+  } finally {
+    estado.executando = false;
+    $("btn-hibrido").disabled = !$("arquivo").files[0];
+  }
+});
+
+// Monta o estado do editor híbrido a partir do layout do solver (sem tocar na cena)
+function montarEditorHibrido(r, catalogo) {
+  const c = r.conteiner;
+  const ed = novoEditor();
+  ed.catalogo = catalogo;
+  ed.cont = { nome: c.nome, cx: c.cx, cy: c.cy, cz: c.cz,
+              peso_max_kg: c.peso_max_kg, vol_max_m3: c.vol_max_cm3 / 1_000_000 };
+  for (const it of r.itens) {
+    const dz = it.end_z - it.st_z;
+    const cat = catalogo.find((x) => x.nome === it.nome);
+    ed.manual.posicionadas.push({
+      id: it.nome, item: cat || { volume_cm3: 0, peso_kg: it.peso_kg },
+      stx: it.st_x, sty: it.st_y, stz: it.st_z,
+      dx: it.dx, dy: it.dy, dz, girado: !!it.girado, idxCor: cat ? cat.idxCor : 0,
+    });
+  }
+  return ed;
+}
 
 // ═══ Utilitários ════════════════════════════════════════════════════════════
 
