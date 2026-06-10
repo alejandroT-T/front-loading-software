@@ -28,6 +28,8 @@ let modoManual = false;          // true no modo manual (habilita arrasto no pis
 let selManual = null;            // id da caixa manual selecionada
 let aoSelManualCb = null;        // callback de seleção (modo manual)
 let aoMoverCb = null;            // callback de arrasto: (id, st_x, st_y, st_z)
+let setasSel = null;             // THREE.Group com as 6 setas da caixa selecionada
+let aoSetaCb = null;             // callback de clique numa seta: ({eixo, sinal})
 
 // Registra o callback chamado com o índice clicado (ou null no clique em vazio)
 export function onSelecionar(cb) {
@@ -35,6 +37,7 @@ export function onSelecionar(cb) {
 }
 export function onSelManual(cb) { aoSelManualCb = cb; }
 export function onMoverManual(cb) { aoMoverCb = cb; }
+export function onSeta(cb) { aoSetaCb = cb; }
 
 export function initScene(container) {
   elContainer = container;
@@ -68,7 +71,7 @@ export function initScene(container) {
 
   // Interação por ponteiro: clique = seleção; no modo manual, arrastar = mover no piso.
   const ray = new THREE.Raycaster();
-  let posDown = null, alvoArr = null, arrastou = false;
+  let posDown = null, alvoArr = null, arrastou = false, cliqueConsumido = false;
   const planoArr = new THREE.Plane(), offsetArr = new THREE.Vector3(), pArr = new THREE.Vector3();
 
   const ndcDe = (ev) => {
@@ -84,9 +87,18 @@ export function initScene(container) {
     arrastou = false; alvoArr = null;
     if (modoManual && grupoManual) {
       ray.setFromCamera(ndcDe(ev), camera);
-      const hits = ray.intersectObjects(grupoManual.children, false);
-      if (hits.length) {
-        alvoArr = hits[0].object;
+      const hitsSeta = setasSel ? ray.intersectObjects(setasSel.children, false) : [];
+      const hitsCx = ray.intersectObjects(grupoManual.children, false);
+      // Seta de deslizamento ganha se for o alvo mais próximo da câmera
+      if (hitsSeta.length && (!hitsCx.length || hitsSeta[0].distance <= hitsCx[0].distance)) {
+        if (aoSetaCb) aoSetaCb(hitsSeta[0].object.userData.seta);
+        cliqueConsumido = true;
+        posDown = null;
+        controls.enabled = false;  // não orbita a partir do clique na seta (volta no pointerup)
+        return;
+      }
+      if (hitsCx.length) {
+        alvoArr = hitsCx[0].object;
         controls.enabled = false;  // pegou uma caixa → trava o orbit (arrasta a caixa)
       }
     }
@@ -116,6 +128,7 @@ export function initScene(container) {
     const foiArrasto = arrastou;
     controls.enabled = true;  // destrava o orbit ao soltar
     posDown = null; alvoArr = null; arrastou = false;
+    if (cliqueConsumido) { cliqueConsumido = false; return; }  // clique foi numa seta
     if (foiArrasto) return;   // foi arrasto, não clique
     if (moveu) return;        // orbitou → não seleciona
     ray.setFromCamera(ndcDe(ev), camera);
@@ -168,6 +181,7 @@ export function limparCena() {
   scene.children.filter((o) => o.userData.fixo).forEach((o) => scene.remove(o));
   indiceSelecionado = null;
   selManual = null;
+  setasSel = null;  // já descartado junto com a caixa (é filho dela)
 }
 
 // Limpa a cena (auto + manual) e desenha o contêiner vazio + enquadra a câmera.
@@ -278,6 +292,60 @@ function aplicarSelecao() {
 // ═══ Modo manual ═════════════════════════════════════════════════════════════
 const COR_INVALIDA = new THREE.Color(0xf85149);
 
+// ── Setas de deslizamento (6 sentidos) na caixa selecionada ──
+// Clicar numa seta desliza a caixa naquele sentido até o primeiro obstáculo
+// (a lógica fica no app, via onSeta). As setas são filhas do mesh da caixa,
+// então acompanham o movimento sozinhas; só precisam reposicionar no resize.
+const DIRECOES_SETA = [
+  { eixo: "x", sinal: +1 }, { eixo: "x", sinal: -1 },
+  { eixo: "y", sinal: +1 }, { eixo: "y", sinal: -1 },
+  { eixo: "z", sinal: +1 }, { eixo: "z", sinal: -1 },
+];
+
+function removerSetas() {
+  if (!setasSel) return;
+  if (setasSel.parent) setasSel.parent.remove(setasSel);
+  descartar(setasSel);
+  setasSel = null;
+}
+
+function criarSetas(caixa) {
+  removerSetas();
+  setasSel = new THREE.Group();
+  for (const seta of DIRECOES_SETA) {
+    const cone = new THREE.Mesh(
+      new THREE.ConeGeometry(11, 30, 16),
+      new THREE.MeshBasicMaterial({ color: 0xffd92f }),
+    );
+    cone.userData.seta = seta;
+    setasSel.add(cone);
+  }
+  caixa.add(setasSel);
+  posicionarSetas();
+}
+
+// Posiciona cada seta no centro da face correspondente, apontando para fora.
+// Eixos locais do mesh: x = backend X (dx), y = backend Z (dz), z = backend Y (dy).
+function posicionarSetas() {
+  if (!setasSel || !setasSel.parent) return;
+  const d = setasSel.parent.userData;
+  const off = 15 + 15;  // afastamento da face + meia altura do cone
+  for (const cone of setasSel.children) {
+    const { eixo, sinal } = cone.userData.seta;
+    cone.rotation.set(0, 0, 0);  // cone padrão aponta +Y local
+    if (eixo === "x") {
+      cone.position.set(sinal * (d.dx / 2 + off), 0, 0);
+      cone.rotation.z = sinal > 0 ? -Math.PI / 2 : Math.PI / 2;
+    } else if (eixo === "y") {
+      cone.position.set(0, 0, sinal * (d.dy / 2 + off));
+      cone.rotation.x = sinal > 0 ? Math.PI / 2 : -Math.PI / 2;
+    } else {
+      cone.position.set(0, sinal * (d.dz / 2 + off), 0);
+      if (sinal < 0) cone.rotation.x = Math.PI;
+    }
+  }
+}
+
 // Entra no modo manual: limpa a cena e desenha o contêiner vazio
 export function initManual(conteiner) {
   modoManual = true;
@@ -336,18 +404,20 @@ export function redimensionarCaixaManual(id, dx, dy, dz) {
   c.geometry = geo;
   const arestas = c.children.find((o) => o.isLineSegments);
   if (arestas) { arestas.geometry.dispose(); arestas.geometry = new THREE.EdgesGeometry(geo); }
+  if (setasSel && setasSel.parent === c) posicionarSetas();  // acompanha as novas faces
 }
 
 export function removerCaixaManual(id) {
   const c = caixasManual.get(id);
   if (!c) return;
+  if (setasSel && setasSel.parent === c) setasSel = null;  // descartado junto (é filho)
   grupoManual.remove(c);
   descartar(c);
   caixasManual.delete(id);
   if (selManual === id) selManual = null;
 }
 
-// Destaca a caixa de id (null = nenhuma): brilho + label
+// Destaca a caixa de id (null = nenhuma): brilho + label + setas de deslizamento
 export function selecionarCaixaManual(id) {
   selManual = id;
   caixasManual.forEach((c, key) => {
@@ -355,6 +425,9 @@ export function selecionarCaixaManual(id) {
     c.material.emissive.setHex(sel ? 0x2f2f2f : 0x000000);
     c.userData.label.visible = sel;
   });
+  const caixa = id != null ? caixasManual.get(id) : null;
+  if (caixa) criarSetas(caixa);
+  else removerSetas();
 }
 
 // Pinta de vermelho as caixas cujo id está no Set `ids` (sobreposição/fora); o resto volta à cor base

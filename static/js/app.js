@@ -4,7 +4,7 @@ import { listarConteineres, carregarItens, iniciarSolver, aguardarResultado } fr
 import {
   initScene, setCarga, mostrarAte, PALETA, onSelecionar, selecionarItem, limparCena,
   initManual, adicionarCaixaManual, moverCaixaManual, redimensionarCaixaManual,
-  removerCaixaManual, selecionarCaixaManual, marcarInvalidos, onSelManual, onMoverManual,
+  removerCaixaManual, selecionarCaixaManual, marcarInvalidos, onSelManual, onMoverManual, onSeta,
 } from "./scene.js";
 
 const $ = (id) => document.getElementById(id);
@@ -603,7 +603,45 @@ $("btn-remover").addEventListener("click", () => {
   renderManual();
 });
 
+// Desliza a caixa selecionada no sentido da seta clicada até encostar no
+// primeiro obstáculo — ou até a parede/piso/teto do contêiner se o caminho
+// estiver livre. Só bloqueia caixa cuja projeção cruza a da selecionada nos
+// outros dois eixos; caixas já sobrepostas não bloqueiam (modo livre com avisos).
+function deslizarSel(eixo, sinal) {
+  const reg = regSel();
+  if (!reg || !estado.contManual) return;
+  const ST = { x: "stx", y: "sty", z: "stz" }, DIM = { x: "dx", y: "dy", z: "dz" };
+  const st = ST[eixo], dim = DIM[eixo];
+  const limite = { x: estado.contManual.cx, y: estado.contManual.cy, z: estado.contManual.cz }[eixo];
+  const outros = ["x", "y", "z"].filter((e) => e !== eixo);
+  const cruza = (p) => outros.every((e) =>
+    p[ST[e]] < reg[ST[e]] + reg[DIM[e]] && reg[ST[e]] < p[ST[e]] + p[DIM[e]]);
+
+  let novo;
+  if (sinal < 0) {
+    novo = 0;  // limite do contêiner (fundo/lateral/piso)
+    for (const p of estado.manual.posicionadas) {
+      if (p.id === reg.id || !cruza(p)) continue;
+      const borda = p[st] + p[dim];
+      if (borda <= reg[st] && borda > novo) novo = borda;
+    }
+  } else {
+    novo = limite - reg[dim];
+    for (const p of estado.manual.posicionadas) {
+      if (p.id === reg.id || !cruza(p)) continue;
+      if (p[st] >= reg[st] + reg[dim] && p[st] - reg[dim] < novo) novo = p[st] - reg[dim];
+    }
+  }
+  if (novo === reg[st]) return;
+  reg[st] = novo;
+  moverCaixaManual(reg.id, reg.stx, reg.sty, reg.stz);
+  recalcManual();
+  atualizarEditorCampos();
+  atualizarCardSel();
+}
+
 // Callbacks da cena (modo manual)
+onSeta(({ eixo, sinal }) => deslizarSel(eixo, sinal));
 onSelManual((id) => selecionarManualId(id));
 onMoverManual((id, stx, sty, stz) => {
   const reg = estado.manual.posicionadas.find((p) => p.id === id);
