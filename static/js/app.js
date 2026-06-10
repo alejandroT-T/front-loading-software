@@ -16,6 +16,7 @@ function novoEditor() {
     catalogo: [],   // [{nome, x, y, z, peso_kg, volume_cm3, idxCor}] da planilha
     cont: null,     // contêiner ativo (cx/cy/cz/peso_max_kg/vol_max_m3)
     manual: { posicionadas: [], selId: null, invalid: new Set() },
+    arquivo: null,  // nome da planilha carregada (usado no nome do CSV exportado)
   };
 }
 
@@ -24,6 +25,7 @@ const estado = {
   conteineres: [],   // catálogo vindo da API
   // Modo automático
   resultado: null,   // resposta do solver
+  arquivoAuto: null, // nome da planilha que gerou estado.resultado
   visiveis: 0,       // quantos itens estão posicionados na cena
   selecionado: null, // índice do item destacado (null = nenhum)
   executando: false,
@@ -33,6 +35,7 @@ const estado = {
   catalogo: [],
   contManual: null,
   manual: null,
+  arquivoManual: null,
 };
 // Espelha o editor inicial nas referências ativas
 {
@@ -40,6 +43,7 @@ const estado = {
   estado.catalogo = e.catalogo;
   estado.contManual = e.cont;
   estado.manual = e.manual;
+  estado.arquivoManual = e.arquivo;
 }
 
 // ═══ Inicialização ══════════════════════════════════════════════════════════
@@ -63,7 +67,8 @@ function setModo(modo) {
   // Guarda o editor do modo anterior e ativa o do novo — manual e híbrido são
   // independentes, e o resultado do automático fica intacto em estado.resultado.
   estado.editores[estado.editorAtivo] =
-    { catalogo: estado.catalogo, cont: estado.contManual, manual: estado.manual };
+    { catalogo: estado.catalogo, cont: estado.contManual, manual: estado.manual,
+      arquivo: estado.arquivoManual };
   const auto = modo === "auto", manual = modo === "manual", hibrido = modo === "hibrido";
   const editavel = manual || hibrido;  // ambos usam o editor manipulável (paleta/posicionadas/edição)
   if (editavel) {
@@ -72,6 +77,7 @@ function setModo(modo) {
     estado.catalogo = e.catalogo;
     estado.contManual = e.cont;
     estado.manual = e.manual;
+    estado.arquivoManual = e.arquivo;
   }
   estado.modo = modo;
 
@@ -93,6 +99,7 @@ function setModo(modo) {
   // Cada modo mantém sua própria cena: reconstrói o visual do modo que entrou
   if (auto) reconstruirCenaAuto();
   else reconstruirCenaManual();
+  atualizarBotaoExportar();
 }
 
 document.querySelectorAll(".modo-btn").forEach((b) =>
@@ -189,6 +196,7 @@ $("btn-executar").addEventListener("click", async () => {
       setStatus(`⏳ ${fase || "Executando solver…"} — ${seg}s`);
     });
     estado.resultado = resultado;
+    estado.arquivoAuto = arquivo.name;
     setStatus("✅ Solução encontrada!", "ok");
     apresentarResultado(resultado);
   } catch (e) {
@@ -213,7 +221,10 @@ function apresentarResultado(r) {
   // o resultado fica em estado.resultado e reaparece ao voltar pro automático.
   estado.selecionado = null;
   estado.visiveis = r.itens.length;
-  if (estado.modo === "auto") reconstruirCenaAuto();
+  if (estado.modo === "auto") {
+    reconstruirCenaAuto();
+    atualizarBotaoExportar();
+  }
 }
 
 // Estatísticas gerais + itens não carregados (painel esquerdo-inferior)
@@ -408,10 +419,12 @@ $("btn-carregar").addEventListener("click", async () => {
     const ed = novoEditor();
     ed.catalogo = itens.map((it, i) => ({ ...it, idxCor: i }));
     ed.cont = cont;
+    ed.arquivo = arquivo.name;
     if (estado.modo === "manual") {
       estado.catalogo = ed.catalogo;
       estado.contManual = ed.cont;
       estado.manual = ed.manual;
+      estado.arquivoManual = ed.arquivo;
       reconstruirCenaManual();
     } else {
       // usuário trocou de modo durante a leitura: guarda no slot do manual
@@ -489,6 +502,7 @@ function atualizarStatsManual() {
 
 // Render das listas (paleta + posicionadas) e do editor
 function renderManual() {
+  atualizarBotaoExportar();
   const P = estado.manual.posicionadas;
   const colocadas = new Set(P.map((p) => p.id));
 
@@ -697,10 +711,12 @@ $("btn-hibrido").addEventListener("click", async () => {
       setStatusHibrido(`⏳ ${fase || "Executando solver…"} — ${seg}s`));
 
     const ed = montarEditorHibrido(resultado, catalogo);
+    ed.arquivo = arquivo.name;
     if (estado.modo === "hibrido") {
       estado.catalogo = ed.catalogo;
       estado.contManual = ed.cont;
       estado.manual = ed.manual;
+      estado.arquivoManual = ed.arquivo;
       reconstruirCenaManual();
     } else {
       // usuário trocou de modo durante o solve: guarda no slot do híbrido
@@ -733,6 +749,67 @@ function montarEditorHibrido(r, catalogo) {
   }
   return ed;
 }
+
+// ═══ Exportação CSV ══════════════════════════════════════════════════════════
+// Uma linha por caixa posicionada: dimensões originais da planilha + posição
+// final + flag de giro/rotação. Formato de dataset (vírgula, decimal com ponto,
+// UTF-8) — a ideia é acumular exemplos para treinar um modelo que substitua o solver.
+
+function csvCelula(v) {
+  const s = String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function linhasCsv() {
+  if (estado.modo === "auto") {
+    if (!estado.resultado) return [];
+    // dx/dy vêm com o giro aplicado; o solver só gira no plano (X↔Y),
+    // então desfazer a troca recupera comprimento/profundidade originais
+    return estado.resultado.itens.map((it) => [
+      it.nome, it.peso_kg,
+      it.girado ? it.dy : it.dx,
+      it.girado ? it.dx : it.dy,
+      it.dz,
+      it.st_x, it.st_y, it.st_z,
+      it.girado ? "Sim" : "Não",
+    ]);
+  }
+  if (!estado.manual) return [];
+  return estado.manual.posicionadas.map((p) => {
+    const o = p.item || {};
+    // sem dims no catálogo (item do híbrido fora da planilha): usa as da caixa
+    return [
+      p.id, o.peso_kg ?? "",
+      o.x ?? p.dx, o.y ?? p.dy, o.z ?? p.dz,
+      p.stx, p.sty, p.stz,
+      p.girado ? "Sim" : "Não",
+    ];
+  });
+}
+
+function exportarCsv() {
+  const linhas = linhasCsv();
+  if (!linhas.length) return;
+  const cab = ["item", "peso_kg", "comprimento_cm", "profundidade_cm", "altura_cm",
+               "pos_x_cm", "pos_y_cm", "pos_z_cm", "girado"];
+  const csv = [cab, ...linhas].map((l) => l.map(csvCelula).join(",")).join("\n");
+  const planilha = estado.modo === "auto" ? estado.arquivoAuto : estado.arquivoManual;
+  const base = (planilha || "carregamento").replace(/\.xlsx$/i, "");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  a.download = `${base}_${estado.modo}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function atualizarBotaoExportar() {
+  const tem = estado.modo === "auto"
+    ? !!(estado.resultado && estado.resultado.itens.length)
+    : !!(estado.manual && estado.manual.posicionadas.length);
+  $("btn-exportar-csv").disabled = !tem;
+}
+
+$("btn-exportar-csv").addEventListener("click", exportarCsv);
 
 // ═══ Utilitários ════════════════════════════════════════════════════════════
 

@@ -145,6 +145,7 @@ select:focus, input:focus { outline: none; border-color: var(--acento); }
 }
 .btn-executar:hover:not(:disabled) { background: var(--acento-hover); }
 .btn-executar:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-exportar { margin-top: 12px; }
 
 .status-solver { margin-top: 8px; font-size: 12px; min-height: 16px; color: var(--texto-suave); text-align: center; }
 .status-solver.erro { color: var(--erro); }
