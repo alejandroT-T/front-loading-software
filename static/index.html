@@ -13,6 +13,7 @@
       }
     }
   </script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" defer></script>
 </head>
 <body>
   <header class="topo">🚢 Simulador de Carregamento de Contêiner</header>
@@ -91,6 +92,8 @@
         </details>
         <button id="btn-exportar-csv" class="btn-executar btn-exportar" disabled
                 title="Baixa um CSV com item, peso, dimensões, posição e giro de cada caixa posicionada">📄 Exportar CSV</button>
+        <button id="btn-exportar-pdf" class="btn-executar btn-exportar" disabled
+                title="Gera o documento técnico de montagem em PDF: imagens 3D etapa por etapa (3 caixas por etapa), do fundo à frente, empilhando cada coluna do chão ao teto">📑 Exportar PDF (montagem)</button>
       </section>
     </aside>
 
@@ -109,7 +112,7 @@
 
       <!-- Controles do modo manual: editor da caixa selecionada -->
       <div class="controles" id="controles-manual" hidden>
-        <span id="manual-hint" class="contador">Clique numa caixa da paleta para posicionar.</span>
+        <span id="manual-hint" class="contador">Clique numa caixa da paleta para posicionar. Ctrl+Z desfaz, Ctrl+Shift+Z refaz.</span>
         <span id="manual-editor" class="manual-editor" hidden>
           <strong id="m-sel-nome" class="contador" title="Caixa selecionada">—</strong>
           <label class="m-coord">X<input type="number" id="m-x" value="0"></label>

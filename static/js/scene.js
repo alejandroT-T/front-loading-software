@@ -168,7 +168,10 @@ function redimensionar() {
 function descartar(obj) {
   obj.traverse((o) => {
     if (o.geometry) o.geometry.dispose();
-    if (o.material) o.material.dispose();
+    if (o.material) {
+      if (o.material.map) o.material.map.dispose();  // textura (sprites numerados do PDF)
+      o.material.dispose();
+    }
     if (o.element && o.element.parentNode) o.element.parentNode.removeChild(o.element);  // label CSS2D
   });
 }
@@ -435,4 +438,114 @@ export function marcarInvalidos(ids) {
   caixasManual.forEach((c, key) => {
     c.material.color.copy(ids.has(key) ? COR_INVALIDA : c.userData.corBase);
   });
+}
+
+// ═══ Captura de etapas (PDF de montagem) ═════════════════════════════════════
+// Renderiza fora da tela o carregamento acumulado etapa por etapa e devolve uma
+// imagem JPEG (dataURL) por etapa. As caixas da etapa aparecem destacadas e com
+// um marcador numerado (sequência de montagem); as anteriores ficam esmaecidas.
+// Não toca na cena principal — funciona em qualquer modo, sem piscar a tela.
+
+// Paleta do GUIA DE MARCA SOHOME (principal + auxiliar) usada só nas imagens do
+// PDF; a cena na tela continua com a PALETA padrão (cores mais distintas).
+export const PALETA_MARCA = [
+  "#84867b", "#997d5c", "#909d9c", "#878264", "#494038", "#c5c0b3", "#484c40",
+];
+
+// Marcador circular com o número de sequência, desenhado num canvas
+function spriteNumero(n) {
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = 128;
+  const ctx = cv.getContext("2d");
+  ctx.beginPath();
+  ctx.arc(64, 64, 58, 0, Math.PI * 2);
+  ctx.fillStyle = "#211f1e";  // preto da marca
+  ctx.fill();
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = "#ffffff";
+  ctx.stroke();
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 64px Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(String(n), 64, 68);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: new THREE.CanvasTexture(cv), depthTest: false,
+  }));
+  return sp;
+}
+
+// caixas: [{nome, stx, sty, stz, dx, dy, dz, idxCor}] já na ordem de montagem
+export function capturarEtapas(conteiner, caixas, porEtapa = 3, largura = 1280, altura = 720) {
+  const { cx, cy, cz } = conteiner;
+  const cena = new THREE.Scene();
+  cena.background = new THREE.Color(0xffffff);  // fundo branco para impressão
+  cena.add(new THREE.AmbientLight(0xffffff, 0.95));
+  const luz = new THREE.DirectionalLight(0xffffff, 1.1);
+  luz.position.set(cx * 0.8, cz * 3, cy * 2.5);
+  cena.add(luz);
+
+  const geoCont = new THREE.BoxGeometry(cx, cz, cy);
+  const wire = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geoCont),
+    new THREE.LineBasicMaterial({ color: 0x84867b }),  // ash da marca
+  );
+  wire.position.set(cx / 2, cz / 2, cy / 2);
+  cena.add(wire);
+  geoCont.dispose();
+  const piso = new THREE.Mesh(
+    new THREE.PlaneGeometry(cx, cy),
+    new THREE.MeshBasicMaterial({ color: 0xdcd8d3, side: THREE.DoubleSide }),  // bege claro da marca
+  );
+  piso.rotation.x = -Math.PI / 2;
+  piso.position.set(cx / 2, -0.5, cy / 2);
+  cena.add(piso);
+
+  const cam = new THREE.PerspectiveCamera(45, largura / altura, 1, 50000);
+  const alvo = new THREE.Vector3(cx / 2, cz / 2, cy / 2);
+  cam.position.set(cx * 1.05, cz * 2.4, cy * 3.8);
+  cam.lookAt(alvo);
+
+  const meshes = caixas.map((b, i) => {
+    const geo = new THREE.BoxGeometry(b.dx, b.dz, b.dy);
+    const mat = new THREE.MeshLambertMaterial({
+      color: new THREE.Color(PALETA_MARCA[(b.idxCor ?? i) % PALETA_MARCA.length]),
+      transparent: true, opacity: 0.95,
+    });
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(b.stx + b.dx / 2, b.stz + b.dz / 2, b.sty + b.dy / 2);
+    m.add(new THREE.LineSegments(
+      new THREE.EdgesGeometry(geo),
+      new THREE.LineBasicMaterial({ color: 0x211f1e }),
+    ));
+    const sp = spriteNumero(i + 1);
+    sp.position.set(0, b.dz / 2 + 24, 0);
+    sp.scale.set(36, 36, 1);
+    m.add(sp);
+    m.userData.sprite = sp;
+    cena.add(m);
+    return m;
+  });
+
+  const rend = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  rend.setPixelRatio(1);
+  rend.setSize(largura, altura);
+
+  const fotos = [];
+  for (let ini = 0; ini < meshes.length; ini += porEtapa) {
+    const fim = Math.min(ini + porEtapa, meshes.length);
+    meshes.forEach((m, i) => {
+      m.visible = i < fim;
+      const nova = i >= ini && i < fim;
+      m.material.opacity = nova ? 0.95 : 0.3;
+      m.userData.sprite.visible = nova;
+    });
+    rend.render(cena, cam);
+    fotos.push(rend.domElement.toDataURL("image/jpeg", 0.9));
+  }
+
+  descartar(cena);
+  rend.dispose();
+  rend.forceContextLoss();  // libera o contexto WebGL temporário na hora
+  return fotos;
 }

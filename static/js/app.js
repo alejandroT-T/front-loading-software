@@ -5,6 +5,7 @@ import {
   initScene, setCarga, mostrarAte, PALETA, onSelecionar, selecionarItem, limparCena,
   initManual, adicionarCaixaManual, moverCaixaManual, redimensionarCaixaManual,
   removerCaixaManual, selecionarCaixaManual, marcarInvalidos, onSelManual, onMoverManual, onSeta,
+  capturarEtapas, PALETA_MARCA,
 } from "./scene.js";
 
 const $ = (id) => document.getElementById(id);
@@ -15,7 +16,7 @@ function novoEditor() {
   return {
     catalogo: [],   // [{nome, x, y, z, peso_kg, volume_cm3, idxCor}] da planilha
     cont: null,     // contêiner ativo (cx/cy/cz/peso_max_kg/vol_max_m3)
-    manual: { posicionadas: [], selId: null, invalid: new Set() },
+    manual: { posicionadas: [], selId: null, invalid: new Set(), undo: [], redo: [] },
     arquivo: null,  // nome da planilha carregada (usado no nome do CSV exportado)
   };
 }
@@ -337,6 +338,18 @@ $("btn-todos").addEventListener("click", () => setVisiveis(Infinity));
 $("btn-limpar").addEventListener("click", () => setVisiveis(0));
 
 document.addEventListener("keydown", (ev) => {
+  // Ctrl+Z desfaz e Ctrl+Shift+Z (ou Ctrl+Y) refaz a última ação do editor
+  // (modos manual e híbrido) — inclusive com o foco nos campos X/Y/Z, já que
+  // eles também movem a caixa
+  if ((ev.ctrlKey || ev.metaKey) && (estado.modo === "manual" || estado.modo === "hibrido")) {
+    const k = ev.key.toLowerCase();
+    if (k === "z" || k === "y") {
+      ev.preventDefault();
+      if (k === "y" || ev.shiftKey) refazer();
+      else desfazer();
+      return;
+    }
+  }
   if (estado.modo !== "auto") return;
   if (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT") return;
   if (ev.key === "ArrowRight") setVisiveis(estado.visiveis + 1);
@@ -441,11 +454,64 @@ function regSel() {
   return id == null ? null : estado.manual.posicionadas.find((p) => p.id === id);
 }
 
+// ── Desfazer / Refazer (Ctrl+Z / Ctrl+Shift+Z) ──
+// Pilhas de snapshots por editor (manual e híbrido têm cada um as suas, dentro
+// de estado.manual.undo/redo). Um snapshot é guardado ANTES de cada ação que
+// altera as caixas; gestos contínuos (arrasto, digitação de coordenada) são
+// agrupados pelo par grupo+janela de tempo, então o Ctrl+Z desfaz o gesto
+// inteiro de uma vez. Qualquer ação nova descarta o que havia para refazer.
+const UNDO_MAX = 50;
+let ultimoUndo = { grupo: null, t: 0 };
+
+function snapshotAtual() {
+  return {
+    posicionadas: estado.manual.posicionadas.map((p) => ({ ...p })),
+    selId: estado.manual.selId,
+  };
+}
+
+function pushUndo(grupo = null) {
+  if (!estado.manual) return;
+  estado.manual.redo.length = 0;  // ação nova invalida o refazer
+  const agora = Date.now();
+  if (grupo && ultimoUndo.grupo === grupo && agora - ultimoUndo.t < 1500) {
+    ultimoUndo.t = agora;  // mesmo gesto: mantém só o snapshot do início
+    return;
+  }
+  ultimoUndo = { grupo, t: agora };
+  const u = estado.manual.undo;
+  u.push(snapshotAtual());
+  if (u.length > UNDO_MAX) u.shift();
+}
+
+function restaurarSnapshot(snap, msg) {
+  ultimoUndo = { grupo: null, t: 0 };  // próximo gesto abre novo snapshot
+  estado.manual.posicionadas = snap.posicionadas;
+  estado.manual.selId =
+    snap.selId != null && snap.posicionadas.some((p) => p.id === snap.selId) ? snap.selId : null;
+  reconstruirCenaManual();
+  const status = estado.modo === "hibrido" ? setStatusHibrido : setStatusManual;
+  status(msg, "ok");
+}
+
+function desfazer() {
+  if (!estado.manual || !estado.manual.undo.length) return;
+  estado.manual.redo.push(snapshotAtual());
+  restaurarSnapshot(estado.manual.undo.pop(), "↩ Última ação desfeita (Ctrl+Z).");
+}
+
+function refazer() {
+  if (!estado.manual || !estado.manual.redo.length) return;
+  estado.manual.undo.push(snapshotAtual());
+  restaurarSnapshot(estado.manual.redo.pop(), "↪ Ação refeita (Ctrl+Shift+Z).");
+}
+
 // Coloca uma caixa do catálogo no contêiner. Nasce no piso (Y=0,Z=0) logo após
 // a última no eixo X, para não sobrepor por padrão; o usuário ajusta depois.
 function placeBox(nome) {
   const item = estado.catalogo.find((c) => c.nome === nome);
   if (!item) return;
+  pushUndo();
   const stx = estado.manual.posicionadas.reduce((m, p) => Math.max(m, p.stx + p.dx), 0);
   const reg = { id: nome, item, stx, sty: 0, stz: 0,
                 dx: item.x, dy: item.y, dz: item.z, girado: false, idxCor: item.idxCor };
@@ -579,6 +645,7 @@ function atualizarCardSel() {
 function aplicarCampos() {
   const reg = regSel();
   if (!reg) return;
+  pushUndo(`campos:${reg.id}`);  // digitação contínua = um snapshot só
   reg.stx = Math.round(Number($("m-x").value) || 0);
   reg.sty = Math.round(Number($("m-y").value) || 0);
   reg.stz = Math.round(Number($("m-z").value) || 0);
@@ -594,6 +661,7 @@ function aplicarCampos() {
 function rotacionarSel(a, b) {
   const reg = regSel();
   if (!reg) return;
+  pushUndo();
   [reg[a], reg[b]] = [reg[b], reg[a]];
   reg.girado = reg.item.x != null
     ? (reg.dx !== reg.item.x || reg.dy !== reg.item.y || reg.dz !== reg.item.z)
@@ -610,6 +678,7 @@ $("btn-girar-yz").addEventListener("click", () => rotacionarSel("dy", "dz"));
 $("btn-remover").addEventListener("click", () => {
   const reg = regSel();
   if (!reg) return;
+  pushUndo();
   removerCaixaManual(reg.id);
   estado.manual.posicionadas = estado.manual.posicionadas.filter((p) => p.id !== reg.id);
   estado.manual.selId = null;
@@ -647,6 +716,7 @@ function deslizarSel(eixo, sinal) {
     }
   }
   if (novo === reg[st]) return;
+  pushUndo();
   reg[st] = novo;
   moverCaixaManual(reg.id, reg.stx, reg.sty, reg.stz);
   recalcManual();
@@ -660,6 +730,7 @@ onSelManual((id) => selecionarManualId(id));
 onMoverManual((id, stx, sty, stz) => {
   const reg = estado.manual.posicionadas.find((p) => p.id === id);
   if (!reg) return;
+  pushUndo(`mover:${id}`);  // arrasto contínuo = um snapshot só (posição inicial)
   if (estado.manual.selId !== id) selecionarManualId(id);  // seleciona ao começar a arrastar
   reg.stx = stx; reg.sty = sty; reg.stz = stz;
   recalcManual();
@@ -807,9 +878,199 @@ function atualizarBotaoExportar() {
     ? !!(estado.resultado && estado.resultado.itens.length)
     : !!(estado.manual && estado.manual.posicionadas.length);
   $("btn-exportar-csv").disabled = !tem;
+  $("btn-exportar-pdf").disabled = !tem;
 }
 
 $("btn-exportar-csv").addEventListener("click", exportarCsv);
+
+// ═══ Exportação PDF (documento técnico de montagem) ══════════════════════════
+// Gera um PDF com a montagem do carregamento etapa por etapa: 3 caixas por
+// etapa, 3 etapas por página, na sequência de montagem do chão ao topo e, em
+// cada nível, do fundo à frente. Cada etapa traz uma imagem 3D (caixas da etapa
+// destacadas e numeradas, anteriores esmaecidas) e a legenda com posição,
+// tamanho e peso. O cabeçalho e o rodapé registram o nome da planilha enviada.
+
+// Reúne as caixas posicionadas do modo ativo num formato único
+function cargaParaPdf() {
+  if (estado.modo === "auto") {
+    if (!estado.resultado) return null;
+    const r = estado.resultado;
+    return {
+      planilha: estado.arquivoAuto,
+      cont: r.conteiner,
+      caixas: r.itens.map((it, i) => ({
+        nome: it.nome, stx: it.st_x, sty: it.st_y, stz: it.st_z,
+        dx: it.dx, dy: it.dy, dz: it.end_z - it.st_z,
+        peso_kg: it.peso_kg, girado: !!it.girado, idxCor: i,
+      })),
+    };
+  }
+  if (!estado.manual || !estado.contManual) return null;
+  return {
+    planilha: estado.arquivoManual,
+    cont: estado.contManual,
+    caixas: estado.manual.posicionadas.map((p) => ({
+      nome: p.id, stx: p.stx, sty: p.sty, stz: p.stz,
+      dx: p.dx, dy: p.dy, dz: p.dz,
+      peso_kg: p.item.peso_kg ?? 0, girado: !!p.girado, idxCor: p.idxCor,
+    })),
+  };
+}
+
+// Cores do GUIA DE MARCA SOHOME (RGB) — paleta principal + tons auxiliares
+const MARCA = {
+  ash:    [132, 134, 123],  // #84867b
+  preto:  [33, 31, 30],     // #211f1e
+  bege:   [197, 192, 179],  // #c5c0b3
+  claro:  [220, 216, 211],  // #dcd8d3
+  branco: [255, 255, 255],
+};
+
+function hexRgb(hex) {
+  return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+}
+
+// Logotipo aproximado do manual: "S O" leve + "H O M E" bold, em maiúsculas
+// espaçadas (Geologica/Albert Sans não estão embutidas no jsPDF; Helvetica
+// espaçada reproduz o padrão geométrico do guia). Partes: [{t, peso}].
+function textoMisto(doc, x, y, partes, centroEm = null) {
+  const largura = partes.reduce((s, p) => {
+    doc.setFont("helvetica", p.peso);
+    return s + doc.getTextWidth(p.t);
+  }, 0);
+  let cx = centroEm !== null ? centroEm - largura / 2 : x;
+  for (const p of partes) {
+    doc.setFont("helvetica", p.peso);
+    doc.text(p.t, cx, y);
+    cx += doc.getTextWidth(p.t);
+  }
+}
+
+const LOGO_SOHOME = [{ t: "S O ", peso: "normal" }, { t: "H O M E", peso: "bold" }];
+
+function exportarPdf() {
+  const dados = cargaParaPdf();
+  if (!dados || !dados.caixas.length || !window.jspdf) return;
+  // Sequência de montagem por coluna: começa no fundo empilhando do chão até o
+  // teto; completada a coluna, avança no X para a próxima posição e empilha de novo
+  const caixas = [...dados.caixas].sort((a, b) => a.stx - b.stx || a.stz - b.stz || a.sty - b.sty);
+  const c = dados.cont;
+  const fotos = capturarEtapas({ cx: c.cx, cy: c.cy, cz: c.cz }, caixas, 3);
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const W = 210, H = 297, MARG = 12;
+  const IMG_W = 112, IMG_H = IMG_W * 9 / 16;  // 16:9, igual à captura
+  const TX = MARG + IMG_W + 6;                // coluna da legenda
+
+  // ── Capa (estilo do manual de marca: fundo ash, logotipo branco centrado) ──
+  doc.setFillColor(...MARCA.ash);
+  doc.rect(0, 0, W, H, "F");
+  doc.setTextColor(...MARCA.branco);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(12);
+  doc.text("G R U P O", W / 2, 112, { align: "center" });
+  doc.setFontSize(28);
+  textoMisto(doc, 0, 126, LOGO_SOHOME, W / 2);
+  doc.setFontSize(10);
+  textoMisto(doc, 0, 146, [
+    { t: "D O C U M E N T O ", peso: "bold" },
+    { t: "  T É C N I C O", peso: "normal" },
+  ], W / 2);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  doc.text("Montagem do carregamento de contêiner", W / 2, 154, { align: "center" });
+
+  doc.setDrawColor(...MARCA.claro);
+  doc.setLineWidth(0.3);
+  doc.line(70, 200, 140, 200);
+  doc.setFontSize(9.5);
+  [
+    `Planilha enviada: ${dados.planilha || "—"}`,
+    `Contêiner: ${c.nome || "—"} — ${c.cx} × ${c.cy} × ${c.cz} cm`,
+    `Caixas posicionadas: ${caixas.length}  |  Etapas: ${fotos.length} (até 3 caixas por etapa)`,
+    "Sequência de montagem: do fundo à frente, empilhando cada coluna do chão ao teto",
+    `Gerado em ${new Date().toLocaleString("pt-BR")}`,
+  ].forEach((l, i) => doc.text(l, W / 2, 210 + i * 7, { align: "center" }));
+
+  // ── Páginas de etapas ──
+  const cabecalhoPagina = () => {
+    doc.addPage();
+    doc.setTextColor(...MARCA.ash);
+    doc.setFontSize(10);
+    textoMisto(doc, MARG, 14, LOGO_SOHOME);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.text("Documento técnico — montagem do carregamento", W - MARG, 14, { align: "right" });
+    doc.setDrawColor(...MARCA.bege);
+    doc.setLineWidth(0.3);
+    doc.line(MARG, 18, W - MARG, 18);
+    return 28;
+  };
+
+  let y = cabecalhoPagina();
+  fotos.forEach((foto, e) => {
+    if (y + IMG_H + 6 > 282) y = cabecalhoPagina();  // 3 etapas por página
+    const ini = e * 3;
+    const grupo = caixas.slice(ini, ini + 3);
+
+    doc.setFillColor(...MARCA.ash);
+    doc.rect(MARG, y - 3.2, 2.6, 3.6, "F");  // quadrado de destaque da marca
+    doc.setTextColor(...MARCA.preto);
+    doc.setFontSize(10.5);
+    textoMisto(doc, MARG + 5, y, [
+      { t: `ETAPA ${e + 1} DE ${fotos.length}`, peso: "bold" },
+      { t: `   —   CAIXAS ${ini + 1} A ${ini + grupo.length}`, peso: "normal" },
+    ]);
+    doc.addImage(foto, "JPEG", MARG, y + 3, IMG_W, IMG_H);
+    doc.setDrawColor(...MARCA.bege);
+    doc.setLineWidth(0.3);
+    doc.rect(MARG, y + 3, IMG_W, IMG_H);  // moldura fina na imagem
+
+    doc.setFontSize(8);
+    let ty = y + 9;
+    grupo.forEach((cx2, i) => {
+      doc.setFillColor(...hexRgb(PALETA_MARCA[cx2.idxCor % PALETA_MARCA.length]));
+      doc.rect(TX, ty - 2.4, 3, 3, "F");  // chip com a cor da caixa na imagem
+      doc.setTextColor(...MARCA.preto);
+      doc.setFont("helvetica", "bold");
+      doc.text(`${ini + i + 1}. ${cx2.nome}`.slice(0, 42), TX + 5, ty);
+      doc.setTextColor(...MARCA.ash);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Posição: X ${cx2.stx} | Y ${cx2.sty} | Z ${cx2.stz} cm`, TX + 5, ty + 4);
+      doc.text(`Tamanho: ${cx2.dx} × ${cx2.dy} × ${cx2.dz} cm — ${fmt(cx2.peso_kg, 1)} kg` +
+               (cx2.girado ? " (rotacionada)" : ""), TX + 5, ty + 8);
+      ty += 15;
+    });
+    y += IMG_H + 16;
+  });
+
+  // Rodapé das páginas de etapas: planilha + numeração (a capa fica limpa)
+  const total = doc.getNumberOfPages();
+  for (let p = 2; p <= total; p++) {
+    doc.setPage(p);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(...MARCA.ash);
+    doc.text(dados.planilha || "", MARG, 291);
+    doc.text(`Página ${p} de ${total}`, W - MARG, 291, { align: "right" });
+  }
+  doc.setProperties({ title: "Documento Técnico — Montagem do Carregamento (SOHOME)" });
+
+  const base = (dados.planilha || "carregamento").replace(/\.xlsx$/i, "");
+  doc.save(`${base}_montagem_${estado.modo}.pdf`);
+}
+
+$("btn-exportar-pdf").addEventListener("click", () => {
+  try {
+    exportarPdf();
+  } catch (e) {
+    console.error(e);
+    const el = { auto: "status-solver", manual: "status-manual", hibrido: "status-hibrido" }[estado.modo];
+    $(el).textContent = `❌ Falha ao gerar o PDF: ${e.message}`;
+    $(el).className = "status-solver erro";
+  }
+});
 
 // ═══ Utilitários ════════════════════════════════════════════════════════════
 
