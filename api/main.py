@@ -72,6 +72,9 @@ def _montar_resultado(lista: list, itens_dados: dict, cont: Conteiner) -> dict:
             "dx": e["dx"], "dy": e["dy"], "dz": d["z"],
             "peso_kg": d["peso"] / 1000,
             "girado": e["girado"].startswith("Sim"),
+            # Pés da caixa (visual): {altura, largura, posicoes_x} ou None (maciça)
+            "pes": d.get("pes"),
+            "tipo_caixa": d.get("tipo_caixa"),  # malha | caixa_papelao | caixa_madeira | None
         })
 
     peso_total = sum(itens_dados[n]["peso"] for n in nomes_carregados)
@@ -164,7 +167,10 @@ async def listar_itens(arquivo: UploadFile = File(...)):
     return {
         "itens": [
             {"nome": n, "x": d["x"], "y": d["y"], "z": d["z"],
-             "peso_kg": d["peso"] / 1000, "volume_cm3": d["volume"]}
+             "peso_kg": d["peso"] / 1000, "volume_cm3": d["volume"],
+             # Pés da caixa (visual): {altura, largura, posicoes_x} ou None (maciça)
+             "pes": d.get("pes"),
+             "tipo_caixa": d.get("tipo_caixa")}  # malha | caixa_papelao | caixa_madeira | None
             for n, d in itens_dados.items()
         ]
     }

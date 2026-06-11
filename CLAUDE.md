@@ -87,6 +87,10 @@ static/
 
 Vem de `loading-software` (ver CLAUDE.md de lá): `resolver_carregamento(cont, itens_dados) -> (lista, dados)` com posições em cm, pesos em gramas, volumes em cm³ — a API converte para kg/m³ nas respostas. Planilha de entrada: colunas `ITEM`, `qtd` (opcional), `peso` (kg), `comprimento`, `profundidade`, `altura` (m), `volume` (m³).
 
+**Tipo de caixa:** `/api/itens` e `resultado.itens` trazem `tipo_caixa` (`malha` | `caixa_papelao` | `caixa_madeira` | `null`), exibido nos cards dos 3 modos via `rotuloTipo()` em `app.js` (linha "🏷️ Tipo:" no card expandido/auto; inline no `<small>` da paleta e das posicionadas; `null` oculta — planilhas sem a coluna).
+
+**Pés das caixas (só visual):** o backend manda `pes = {altura: 12, largura: 15, posicoes_x: [...]}` (ou `null`) em cada item de `/api/itens` e de `resultado.itens` — **só `caixa_madeira` tem pés** (ver CLAUDE.md do backend). `geometriaCaixa()` (`scene.js`) monta corpo + 3 pés num único `BufferGeometry` (`mergeGeometries`; pés entram 1 cm no corpo p/ evitar z-fighting) — usado no auto, no manual e na captura do PDF. **O vão entre os pés é apenas visualização**: raycast/arrasto/solver seguem usando o envelope completo e nada é encaixado nele. `pesVisual(reg)` (`app.js`) decide o desenho no editor: eixo dos pés acompanha o comprimento original (`x` normal, `y` girada no plano via comparação `dx === item.x`); caixa tombada (X↔Z/Y↔Z, `dz !== item.z`) desenha maciça.
+
 ## Requisitos originais do front (referência)
 
 - Visualização 3D manipulável (rotação/zoom/pan), caixas em cores distintas com label.

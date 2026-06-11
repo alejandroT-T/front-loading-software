@@ -8,6 +8,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 // Paleta de cores distintas (estilo matplotlib Set2 estendida)
 export const PALETA = [
@@ -176,6 +177,29 @@ function descartar(obj) {
   });
 }
 
+// Geometria de uma caixa (three: x=dx, y=dz altura, z=dy), centrada na origem
+// como a BoxGeometry. Com `pes` (formato do backend: {altura, largura,
+// posicoes_x}), monta corpo + 3 pés num único BufferGeometry — o VÃO entre os
+// pés é só visual: raycast/arrasto/solver continuam usando o envelope completo,
+// e nada é encaixado nesse espaço. eixoPes: eixo onde corre o comprimento
+// original da peça ("x" normal, "y" quando girada 90° no plano).
+function geometriaCaixa(dx, dy, dz, pes = null, eixoPes = "x") {
+  if (!pes || dz <= pes.altura) return new THREE.BoxGeometry(dx, dz, dy);
+  const hPe = pes.altura;
+  const partes = [new THREE.BoxGeometry(dx, dz - hPe, dy).translate(0, hPe / 2, 0)];
+  const yPe = (hPe + 1 - dz) / 2;  // pés entram 1 cm no corpo (evita z-fighting na junção)
+  for (const pos of pes.posicoes_x) {
+    partes.push(eixoPes === "x"
+      ? new THREE.BoxGeometry(pes.largura, hPe + 1, dy)
+          .translate(pos + pes.largura / 2 - dx / 2, yPe, 0)
+      : new THREE.BoxGeometry(dx, hPe + 1, pes.largura)
+          .translate(0, yPe, pos + pes.largura / 2 - dy / 2));
+  }
+  const geo = mergeGeometries(partes);
+  partes.forEach((g) => g.dispose());
+  return geo;
+}
+
 // Esvazia a cena por completo (caixas auto + manual + contêiner). Usada ao
 // trocar de modo quando o novo modo ainda não tem nada para mostrar.
 export function limparCena() {
@@ -237,7 +261,7 @@ export function setCarga(itens, conteiner) {
     const cor = new THREE.Color(PALETA[i % PALETA.length]);
     const dz = item.end_z - item.st_z;
 
-    const geo = new THREE.BoxGeometry(item.dx, dz, item.dy);
+    const geo = geometriaCaixa(item.dx, item.dy, dz, item.pes, item.girado ? "y" : "x");
     const mat = new THREE.MeshLambertMaterial({ color: cor, transparent: true, opacity: 0.85 });
     const caixa = new THREE.Mesh(geo, mat);
     caixa.position.set(item.st_x + item.dx / 2, item.st_z + dz / 2, item.st_y + item.dy / 2);
@@ -360,10 +384,11 @@ export function initManual(conteiner) {
 }
 
 // Adiciona uma caixa posicionável. Coords em backend (cm): st_x/st_y/st_z.
-export function adicionarCaixaManual({ id, nome, dx, dy, dz, stx = 0, sty = 0, stz = 0, indiceCor = 0 }) {
+export function adicionarCaixaManual({ id, nome, dx, dy, dz, stx = 0, sty = 0, stz = 0,
+                                       indiceCor = 0, pes = null, eixoPes = "x" }) {
   if (!grupoManual) return;
   const corBase = new THREE.Color(PALETA[indiceCor % PALETA.length]);
-  const geo = new THREE.BoxGeometry(dx, dz, dy);
+  const geo = geometriaCaixa(dx, dy, dz, pes, eixoPes);
   const mat = new THREE.MeshLambertMaterial({ color: corBase.clone(), transparent: true, opacity: 0.85 });
   const caixa = new THREE.Mesh(geo, mat);
   caixa.position.set(stx + dx / 2, stz + dz / 2, sty + dy / 2);
@@ -397,12 +422,12 @@ export function moverCaixaManual(id, stx, sty, stz) {
 
 // Rotaciona a caixa (qualquer troca entre dx/dy/dz): recria a geometria com as
 // novas dimensões. O app deve chamar moverCaixaManual em seguida p/ manter st_*.
-export function redimensionarCaixaManual(id, dx, dy, dz) {
+export function redimensionarCaixaManual(id, dx, dy, dz, pes = null, eixoPes = "x") {
   const c = caixasManual.get(id);
   if (!c) return;
   const d = c.userData;
   d.dx = dx; d.dy = dy; d.dz = dz;
-  const geo = new THREE.BoxGeometry(dx, dz, dy);
+  const geo = geometriaCaixa(dx, dy, dz, pes, eixoPes);
   c.geometry.dispose();
   c.geometry = geo;
   const arestas = c.children.find((o) => o.isLineSegments);
@@ -507,7 +532,7 @@ export function capturarEtapas(conteiner, caixas, porEtapa = 3, largura = 1280, 
   cam.lookAt(alvo);
 
   const meshes = caixas.map((b, i) => {
-    const geo = new THREE.BoxGeometry(b.dx, b.dz, b.dy);
+    const geo = geometriaCaixa(b.dx, b.dy, b.dz, b.pes ?? null, b.eixoPes ?? "x");
     const mat = new THREE.MeshLambertMaterial({
       color: new THREE.Color(PALETA_MARCA[(b.idxCor ?? i) % PALETA_MARCA.length]),
       transparent: true, opacity: 0.95,

@@ -301,7 +301,8 @@ function reconstruirCenaManual() {
   initManual({ cx: c.cx, cy: c.cy, cz: c.cz });
   for (const p of estado.manual.posicionadas) {
     adicionarCaixaManual({ id: p.id, nome: p.id, dx: p.dx, dy: p.dy, dz: p.dz,
-                           stx: p.stx, sty: p.sty, stz: p.stz, indiceCor: p.idxCor });
+                           stx: p.stx, sty: p.sty, stz: p.stz, indiceCor: p.idxCor,
+                           ...pesVisual(p) });
   }
   selecionarCaixaManual(estado.manual.selId);
   $("stats").className = "stats";
@@ -372,9 +373,11 @@ function renderizarPainelDireito() {
     const cor = PALETA[i % PALETA.length];
     const atual = i === estado.visiveis - 1 ? " atual" : "";
     const sel = i === estado.selecionado ? " selecionado" : "";
+    const tipo = rotuloTipo(it.tipo_caixa);
     return `
       <div class="item-card${atual}${sel}" data-indice="${i}" style="--cor-item:${cor}">
         <div class="item-titulo">${it.sequencia}º ITEM A ENTRAR: 📦 ${it.nome}</div>
+        ${tipo ? `🏷️ Tipo: ${tipo}<br>` : ""}
         📍 Comprimento (X): ${it.st_x} cm ➡️ ${it.end_x} cm<br>
         ↔️ Lateral (Y): ${it.st_y} cm — ${it.end_y} cm<br>
         ↕️ Altura (Z): ${it.st_z} cm — ${it.end_z} cm<br>
@@ -454,6 +457,16 @@ function regSel() {
   return id == null ? null : estado.manual.posicionadas.find((p) => p.id === id);
 }
 
+// Pés da caixa para DESENHO (o vão é só visual; nada é encaixado nele):
+// usa os pés do catálogo, correndo no eixo onde está o comprimento original
+// ("x" normal, "y" girada no plano). Caixa tombada (altura original fora do
+// eixo Z) ou item sem pés → desenha maciça.
+function pesVisual(p) {
+  const o = p.item || {};
+  if (!o.pes || (o.z != null && p.dz !== o.z)) return { pes: null, eixoPes: "x" };
+  return { pes: o.pes, eixoPes: o.x == null || p.dx === o.x ? "x" : "y" };
+}
+
 // ── Desfazer / Refazer (Ctrl+Z / Ctrl+Shift+Z) ──
 // Pilhas de snapshots por editor (manual e híbrido têm cada um as suas, dentro
 // de estado.manual.undo/redo). Um snapshot é guardado ANTES de cada ação que
@@ -517,7 +530,7 @@ function placeBox(nome) {
                 dx: item.x, dy: item.y, dz: item.z, girado: false, idxCor: item.idxCor };
   estado.manual.posicionadas.push(reg);
   adicionarCaixaManual({ id: nome, nome, dx: reg.dx, dy: reg.dy, dz: reg.dz,
-                         stx, sty: 0, stz: 0, indiceCor: reg.idxCor });
+                         stx, sty: 0, stz: 0, indiceCor: reg.idxCor, ...pesVisual(reg) });
   selecionarManualId(nome);
   recalcManual();
   renderManual();
@@ -576,10 +589,12 @@ function renderManual() {
   const elPal = $("manual-palette");
   elPal.className = "lista-itens";
   if (pal.length) {
-    elPal.innerHTML = pal.map((c) =>
-      `<div class="pal-item" data-nome="${c.nome}" style="--cor-item:${PALETA[c.idxCor % PALETA.length]}">
-        📦 ${c.nome}<br><small>${c.x}×${c.y}×${c.z} cm | ${fmt(c.peso_kg, 1)} kg</small>
-      </div>`).join("");
+    elPal.innerHTML = pal.map((c) => {
+      const tipo = rotuloTipo(c.tipo_caixa);
+      return `<div class="pal-item" data-nome="${c.nome}" style="--cor-item:${PALETA[c.idxCor % PALETA.length]}">
+        📦 ${c.nome}<br><small>${c.x}×${c.y}×${c.z} cm | ${fmt(c.peso_kg, 1)} kg${tipo ? ` | ${tipo}` : ""}</small>
+      </div>`;
+    }).join("");
     elPal.querySelectorAll(".pal-item").forEach((el) =>
       el.addEventListener("click", () => placeBox(el.dataset.nome)));
   } else {
@@ -596,17 +611,19 @@ function renderManual() {
       const sel = p.id === estado.manual.selId;
       const rot = p.girado ? " (rotacionada)" : "";
       const cor = PALETA[p.idxCor % PALETA.length];
+      const tipo = rotuloTipo(p.item && p.item.tipo_caixa);
       // Caixa selecionada: card expandido com os detalhes (posição, tamanho, peso)
       if (sel) {
         return `<div class="placed-item selecionado${inval}" data-id="${p.id}" style="--cor-item:${cor}">
           <div class="item-titulo">📦 ${p.id}</div>
+          ${tipo ? `🏷️ Tipo: ${tipo}<br>` : ""}
           📍 Posição: <span class="pos-sel">X ${p.stx} | Y ${p.sty} | Z ${p.stz} cm</span><br>
           📐 Tamanho: ${p.dx}×${p.dy}×${p.dz} cm${rot}<br>
           ⚖️ Peso: ${fmt(p.item.peso_kg, 1)} kg
         </div>`;
       }
       return `<div class="placed-item${inval}" data-id="${p.id}" style="--cor-item:${cor}">
-        📦 ${p.id}<br><small>X${p.stx} Y${p.sty} Z${p.stz} | ${p.dx}×${p.dy}×${p.dz} cm${rot} | ${fmt(p.item.peso_kg, 1)} kg</small>
+        📦 ${p.id}<br><small>X${p.stx} Y${p.sty} Z${p.stz} | ${p.dx}×${p.dy}×${p.dz} cm${rot} | ${fmt(p.item.peso_kg, 1)} kg${tipo ? ` | ${tipo}` : ""}</small>
       </div>`;
     }).join("");
     elPl.querySelectorAll(".placed-item").forEach((el) =>
@@ -666,7 +683,8 @@ function rotacionarSel(a, b) {
   reg.girado = reg.item.x != null
     ? (reg.dx !== reg.item.x || reg.dy !== reg.item.y || reg.dz !== reg.item.z)
     : !reg.girado;  // item sem dims no catálogo (híbrido): só alterna a marca
-  redimensionarCaixaManual(reg.id, reg.dx, reg.dy, reg.dz);
+  const pv = pesVisual(reg);
+  redimensionarCaixaManual(reg.id, reg.dx, reg.dy, reg.dz, pv.pes, pv.eixoPes);
   moverCaixaManual(reg.id, reg.stx, reg.sty, reg.stz);  // mantém st_* após trocar as dimensões
   recalcManual();
   renderManual();
@@ -902,6 +920,7 @@ function cargaParaPdf() {
         nome: it.nome, stx: it.st_x, sty: it.st_y, stz: it.st_z,
         dx: it.dx, dy: it.dy, dz: it.end_z - it.st_z,
         peso_kg: it.peso_kg, girado: !!it.girado, idxCor: i,
+        pes: it.pes ?? null, eixoPes: it.girado ? "y" : "x",
       })),
     };
   }
@@ -913,6 +932,7 @@ function cargaParaPdf() {
       nome: p.id, stx: p.stx, sty: p.sty, stz: p.stz,
       dx: p.dx, dy: p.dy, dz: p.dz,
       peso_kg: p.item.peso_kg ?? 0, girado: !!p.girado, idxCor: p.idxCor,
+      ...pesVisual(p),
     })),
   };
 }
@@ -1076,4 +1096,14 @@ $("btn-exportar-pdf").addEventListener("click", () => {
 
 function fmt(n, casas = 0) {
   return n.toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
+}
+
+// Rótulo amigável do tipo_caixa da planilha (null/desconhecido → null = oculta)
+const TIPO_CAIXA_ROTULO = {
+  malha: "🧺 Malha",
+  caixa_papelao: "📦 Caixa de papelão",
+  caixa_madeira: "🪵 Caixa de madeira",
+};
+function rotuloTipo(tipo) {
+  return tipo ? TIPO_CAIXA_ROTULO[tipo] || `📦 ${tipo}` : null;
 }
